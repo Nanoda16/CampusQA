@@ -24,3 +24,131 @@
 ## 参考文件
 
 `campus_assistant_arch.md` — 来自其他项目的校园问答助手架构设计文档，作为本项目的参考。其中的技术栈选型（FastAPI + LangChain + ChromaDB）、分层架构设计、多源路由策略等思路可供借鉴。
+
+---
+
+## 后端服务 (Nanoda 分支 · 2026-07-15)
+
+> 贡献者：**Nanoda**  
+> Day 1 交付：MySQL 数据库后端信息存储 + 用户问答缓存
+
+### 技术栈
+
+| 组件 | 选型 | 说明 |
+|------|------|------|
+| Web 框架 | FastAPI | 异步高性能，自动 Swagger 文档 |
+| ORM | SQLAlchemy 2.0 | 声明式模型，pymysql 驱动 |
+| 数据库 | MySQL 8.0 | 关系型持久存储 |
+| 缓存 | Redis 5.0 | 问答缓存、会话缓存、热数据统计 |
+| 认证 | JWT (HS256) | 24h 有效期，角色权限控制 |
+| 密码加密 | BCrypt | passlib 实现 |
+
+### 数据库设计
+
+**sys_user** — 用户表
+| 字段 | 说明 |
+|------|------|
+| username | 用户名（唯一索引） |
+| password_hash | BCrypt 加密密码 |
+| role | 角色：student / teacher / admin |
+| status | 1=启用，0=禁用（软删除） |
+
+**kb_document** — 知识库文档表
+| 字段 | 说明 |
+|------|------|
+| title / content | 文档标题与内容 |
+| category | 分类：news / academic / departments 等 |
+| source_url | 来源 URL |
+| status | 0=草稿，1=已发布，2=已归档 |
+
+**qa_record** — 问答记录表
+| 字段 | 说明 |
+|------|------|
+| user_id | 关联用户 (FK) |
+| session_id | 会话分组 |
+| question / answer | 问题与 AI 回答 |
+| sources | 引用来源 JSON |
+| feedback | 0=无，1=有用，2=无用 |
+| duration_ms | 响应耗时 |
+
+### API 端点（18个）
+
+**用户模块** `/api/user/*`
+- `POST /register` — 注册（BCrypt 加密）
+- `POST /login` — 登录（返回 JWT）
+- `GET /profile` — 个人信息（需认证）
+- `PUT /profile` — 更新信息
+- `GET /list` — 用户列表（管理员）
+
+**文档模块** `/api/document/*`
+- `POST /` — 创建文档
+- `GET /list` — 列表（分页 + 分类/部门筛选）
+- `GET /categories` — 分类列表
+- `GET /{id}` — 详情
+- `PUT /{id}` — 更新
+- `DELETE /{id}` — 软删除
+
+**问答模块** `/api/qa/*`
+- `POST /ask` — 提交问题（缓存优先）
+- `POST /answer` — 保存回答 + 写入缓存
+- `GET /history` — 会话列表（按 session_id 分组）
+- `GET /session/{id}` — 会话详情
+- `DELETE /session/{id}` — 删除会话
+- `GET /hot` — 热门问题 Top10
+- `POST /feedback` — 提交反馈
+
+### 缓存设计
+
+```
+campus:qa:qa:{user_id}:{md5(question)}  → 问答缓存（TTL 10min）
+campus:qa:session:{session_id}          → 会话历史（TTL 7天）
+campus:qa:hot:questions                 → 热门排行（ZSet）
+```
+
+Redis 不可用时自动降级到 **fakeredis**（内存模拟），零代码改动。
+
+### 项目结构
+
+```
+backend/
+├── app/
+│   ├── main.py              # FastAPI 入口
+│   ├── config.py            # 配置中心
+│   ├── database.py          # SQLAlchemy 引擎
+│   ├── redis_client.py      # Redis（自动降级到 fakeredis）
+│   ├── models/              # ORM 模型（3张表）
+│   ├── schemas/             # Pydantic 请求/响应
+│   ├── services/            # 业务逻辑
+│   ├── routers/             # API 路由（18个端点）
+│   └── cache/               # Redis 缓存层
+├── init_db.sql              # 建库建表脚本
+├── requirements.txt
+└── .env
+```
+
+### 本地启动
+
+```bash
+# 1. 安装依赖
+cd backend
+pip install -r requirements.txt
+
+# 2. 初始化数据库（MySQL 需已启动）
+mysql -u root -p < init_db.sql
+
+# 3. 启动服务
+python -m uvicorn app.main:app --reload --port 8002
+
+# 4. 访问 Swagger 文档
+# http://localhost:8002/docs
+```
+
+### 验证结果 (2026-07-15)
+
+```
+✅ 用户注册  → 200  BCrypt 加密存储
+✅ JWT 登录  → 200  24h 有效期
+✅ 文档 CRUD → 200  分页 + 分类筛选
+✅ 问答缓存  → 200  命中 real Redis
+✅ 热门问题  → 200  ZSet 排序
+```

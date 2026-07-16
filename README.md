@@ -1,196 +1,223 @@
 # CampusQA - 河海大学校园知识问答助手
 
-基于 LLM + RAG / Agent + RAG 构建的河海大学校园知识问答系统。
+基于 RAG（检索增强生成）构建的河海大学校园知识问答系统。
 
-## knowledge_docs 目录说明
+## 知识库
 
-知识文档库，存放用于 RAG 检索的河海大学相关知识文档。
+`knowledge_docs/` 目录包含 340 篇河海大学相关知识文档，覆盖：
 
 | 文件夹 | 内容 | 文档数 |
 |--------|------|--------|
-| `news/` | 学校新闻、学术动态、科研成果、通知公告 | 198 |
-| `academic/` | 教务处通知、研究生院、课程安排、教学工作 | 57 |
-| `academic_files/` | 从 PDF/XLSX/PPTX 提取的课程清单、校历、使用指南等 | 16 |
-| `university_info/` | 学校概况、院系设置、职能部门、校园文化 | 17 |
-| `departments/` | 各学院简介、师资队伍、科研介绍 | 14 |
-| `admin/` | 职能部门（资产处、基建处、审计处等） | 13 |
-| `alumni/` | 校友会、教育发展基金会、捐赠项目 | 12 |
-| `third_party/` | 百度百科、维基百科、教育部、人民网等第三方来源 | 11 |
-| `research/` | 科技处、社科处等科研平台信息 | 1 |
-| `campus_life/` | 学生工作部等校园生活信息 | 1 |
-
-**来源**：河海大学主站 (hhu.edu.cn) 及各子域名、16个学院官网、12个职能部门网站、百度百科、维基百科、教育部等。每篇文档均标注了网页来源 URL。
-
-## 参考文件
-
-`campus_assistant_arch.md` — 来自其他项目的校园问答助手架构设计文档，作为本项目的参考。其中的技术栈选型（FastAPI + LangChain + ChromaDB）、分层架构设计、多源路由策略等思路可供借鉴。
+| `news/` | 学校新闻、学术动态、通知公告 | 198 |
+| `academic/` | 教务处通知、研究生院、课程安排 | 57 |
+| `university_info/` | 学校概况、院系设置、校园文化 | 17 |
+| `academic_files/` | 课程清单、校历、使用指南 | 16 |
+| `departments/` | 各学院简介、师资队伍 | 14 |
+| `admin/` | 职能部门信息 | 13 |
+| `alumni/` | 校友会、教育发展基金会 | 12 |
+| `third_party/` | 百度百科、维基百科、教育部等 | 11 |
+| `research/` | 科研平台信息 | 1 |
+| `campus_life/` | 校园生活 | 1 |
 
 ---
 
-## 后端服务 (Nanoda 分支 · 2026-07-15)
+## 功能介绍
 
-> 贡献者：**Nanoda**  
-> Day 1 交付：MySQL 数据库后端信息存储 + 用户问答缓存
+### 智能问答
 
-### 技术栈
+- 支持 **RAG 模式**（默认开启）：检索知识库后由 AI 生成回答，每条可核查事实标注引用来源  
+- 回答附带**来源卡片**：展示相关度评分、原文片段、来源链接、发布日期
+- **低置信拒答**：知识库外的问题自动回复「未找到相关信息」，避免生成幻觉
+- **闲聊识别**：问候/寒暄自动跳过检索，直接返回引导信息
+- **会话持久化**：问答记录自动保存，切换页面不丢失，左侧栏可查看历史会话
 
-| 组件 | 选型 | 说明 |
+### 知识库文档管理
+
+- 支持**上传 .txt 文档**，填写标题、分类、来源链接
+- 文档列表支持分类筛选、关键词搜索
+- **重建索引按钮**：一键清空向量库 → 将列表中全部文档重新向量化 → 即时生效
+- 删除文档同步清理对应向量
+
+### 用户系统
+
+- 注册 / 登录（JWT + BCrypt）
+- **修改密码**：个人中心可直接修改密码
+- 管理员：用户管理（角色切换、启禁用）、缓存管理面板
+
+### 缓存系统
+
+- Redis 问答缓存 + 会话缓存 + 热门问题排行
+- Redis 不可用时自动降级到内存模式
+- 管理员可视化缓存面板：实时统计、Key 搜索、一键清空、缓存预热
+
+### 评测框架
+
+- 50 条评测数据集（单轮知识题 + 多轮对话 + 知识库外问题）
+- 支持多种检索配置对比：dense-only / hybrid / hybrid+reranker
+- 指标：Hit@5、MRR@5、Precision、Recall、OOD 拒答率、P95 延迟
+
+---
+
+## 技术栈
+
+| 层 | 技术 |
+|----|------|
+| 后端框架 | FastAPI |
+| 数据库 | MySQL 8.0 + SQLAlchemy |
+| 缓存 | Redis 5.0（自动降级 fakeredis） |
+| 认证 | JWT (HS256) + BCrypt |
+| 嵌入模型 | BAAI/bge-small-zh-v1.5 (512 维) |
+| 向量库 | FAISS (IndexFlatIP) |
+| 关键词检索 | BM25Okapi (jieba 分词) |
+| 融合 | RRF (Reciprocal Rank Fusion, k=60) |
+| 重排序 | BGE-reranker-base（可选开关） |
+| 生成模型 | DeepSeek API (deepseek-chat) |
+| 前端 | React 18 + TypeScript + Vite + Ant Design + Tailwind CSS |
+
+---
+
+## 项目结构
+
+```
+├── ai_service/               # AI 微服务 (port 8003)
+│   ├── main.py               # FastAPI: /query, /stream, /reindex, /rebuild, /stats
+│   ├── config.py             # Pydantic 配置中心
+│   ├── engine/
+│   │   ├── pipeline.py       # RAG 管线编排
+│   │   ├── retriever.py      # FAISS 稠密检索 + 低置信检测
+│   │   ├── embedding.py      # BGE 嵌入（懒加载单例）
+│   │   ├── chunker.py        # 文档切片
+│   │   ├── loader.py         # 知识文档加载
+│   │   ├── vector_store.py   # FAISS 索引管理
+│   │   ├── bm25_retriever.py # BM25 关键词检索（jieba）
+│   │   ├── fusion.py         # RRF 融合
+│   │   ├── reranker.py       # Cross-Encoder 重排
+│   │   ├── citation.py       # 引用后校验
+│   │   ├── artifact_store.py # 单文档工件存储
+│   │   ├── generator.py      # DeepSeek API 客户端
+│   │   └── prompts.py        # Prompt 模板
+│   ├── data/                 # FAISS 索引 + 工件 + BM25
+│   └── cli.py                # 命令行工具
+│
+├── backend/                  # 业务后端 (port 8002)
+│   ├── app/
+│   │   ├── main.py           # FastAPI 入口
+│   │   ├── config.py         # 配置中心
+│   │   ├── database.py       # SQLAlchemy 引擎
+│   │   ├── redis_client.py   # Redis（降级 fakeredis）
+│   │   ├── models/           # ORM 模型
+│   │   ├── schemas/          # Pydantic 请求/响应
+│   │   ├── services/         # 业务逻辑
+│   │   ├── routers/          # API 路由
+│   │   └── cache/            # Redis 缓存层
+│   ├── alembic/              # 数据库迁移
+│   ├── tests/                # pytest 测试（184 个）
+│   └── init_db.sql           # 建库脚本
+│
+├── frontend/                 # React 前端
+│   └── src/
+│       ├── pages/            # Chat, Documents, Profile, Login, Admin, UserManagement
+│       ├── components/       # SourceCards, Layout
+│       ├── context/          # AuthContext
+│       ├── lib/              # SSE 客户端
+│       └── services/         # API 客户端
+│
+├── evals/                    # 评测框架 + 数据集 + 报告
+├── start.ps1                 # 一键启动脚本
+└── start.bat                 # Windows 快捷启动
+```
+
+---
+
+## API 端点
+
+### AI 服务 (port 8003)
+
+| 方法 | 端点 | 说明 |
 |------|------|------|
-| Web 框架 | FastAPI | 异步高性能，自动 Swagger 文档 |
-| ORM | SQLAlchemy 2.0 | 声明式模型，pymysql 驱动 |
-| 数据库 | MySQL 8.0 | 关系型持久存储 |
-| 缓存 | Redis 5.0 | 问答缓存、会话缓存、热数据统计 |
-| 认证 | JWT (HS256) | 24h 有效期，角色权限控制 |
-| 密码加密 | BCrypt | passlib 实现 |
+| POST | `/query` | 同步 RAG 问答 |
+| GET | `/query/stream` | SSE 流式问答 |
+| POST | `/rebuild` | 清空并重建全部索引 |
+| GET | `/reindex` | 从 knowledge_docs/ 全量重建 |
+| POST | `/process` | 处理单篇文档文件 |
+| DELETE | `/document/{id}` | 删除文档向量 + 工件 |
+| GET | `/stats` | 知识库统计 |
+| GET | `/health` | 健康检查 |
 
-### 数据库设计
+### 业务后端 (port 8002)
 
-**sys_user** — 用户表
-| 字段 | 说明 |
-|------|------|
-| username | 用户名（唯一索引） |
-| password_hash | BCrypt 加密密码 |
-| role | 角色：student / teacher / admin |
-| status | 1=启用，0=禁用（软删除） |
-
-**kb_document** — 知识库文档表
-| 字段 | 说明 |
-|------|------|
-| title / content | 文档标题与内容 |
-| category | 分类：news / academic / departments 等 |
-| source_url | 来源 URL |
-| status | 0=草稿，1=已发布，2=已归档 |
-
-**qa_record** — 问答记录表
-| 字段 | 说明 |
-|------|------|
-| user_id | 关联用户 (FK) |
-| session_id | 会话分组 |
-| question / answer | 问题与 AI 回答 |
-| sources | 引用来源 JSON |
-| feedback | 0=无，1=有用，2=无用 |
-| duration_ms | 响应耗时 |
-
-### API 端点（18个）
-
-**用户模块** `/api/user/*`
-- `POST /register` — 注册（BCrypt 加密）
-- `POST /login` — 登录（返回 JWT）
-- `GET /profile` — 个人信息（需认证）
-- `PUT /profile` — 更新信息
-- `GET /list` — 用户列表（管理员）
-
-**文档模块** `/api/document/*`
-- `POST /` — 创建文档
-- `GET /list` — 列表（分页 + 分类/部门筛选）
-- `GET /categories` — 分类列表
-- `GET /{id}` — 详情
-- `PUT /{id}` — 更新
-- `DELETE /{id}` — 软删除
-
-**问答模块** `/api/qa/*`
-- `POST /ask` — 提交问题（缓存优先）
-- `POST /answer` — 保存回答 + 写入缓存
-- `GET /history` — 会话列表（按 session_id 分组）
-- `GET /session/{id}` — 会话详情
-- `DELETE /session/{id}` — 删除会话
-- `GET /hot` — 热门问题 Top10
-- `POST /feedback` — 提交反馈
-
-### 缓存设计
-
-```
-campus:qa:qa:{user_id}:{md5(question)}  → 问答缓存（TTL 10min）
-campus:qa:session:{session_id}          → 会话历史（TTL 7天）
-campus:qa:hot:questions                 → 热门排行（ZSet）
-```
-
-Redis 不可用时自动降级到 **fakeredis**（内存模拟），零代码改动。
-
-### 管理员缓存控制台
-
-> `GET /admin/cache` · 需 admin 角色
-
-可视化缓存管理面板，**每 5 秒自动轮询 Redis**，实时反映缓存状态。
-
-| 功能 | 说明 |
-|------|------|
-| 📊 统计卡片 | 总 Keys、Q&A 缓存、会话缓存、内存占用 · 命中率 |
-| 🥧 饼图 | CSS conic-gradient 展示缓存类别分布 |
-| 📋 Key 列表 | 按前缀搜索、显示类型和 TTL |
-| 🧹 一键清空 | 全部 / 仅 Q&A / 仅会话 / 重置热门 |
-| 🔥 缓存预热 | 批量加载热点问题到 Redis |
-| 🔄 自动刷新 | 5s 间隔轮询，有人提问面板立即可见 |
-
-**管理员 API** `/api/admin/*`（均需 admin JWT）：
-
-| 方法 | 端点 | 功能 |
+| 模块 | 端点 | 说明 |
 |------|------|------|
-| GET | `/cache/stats` | 缓存统计（Keys、内存、命中率、Redis 版本） |
-| GET | `/cache/keys` | Key 列表（支持 pattern 筛选） |
-| DELETE | `/cache/clear` | 清空全部缓存 |
-| DELETE | `/cache/clear/qa` | 清空 Q&A 缓存 |
-| DELETE | `/cache/clear/sessions` | 清空会话缓存 |
-| DELETE | `/cache/clear/hot` | 重置热门问题 |
-| POST | `/cache/warmup` | 缓存预热 |
+| 用户 | `POST /api/user/register` | 注册 |
+| | `POST /api/user/login` | 登录 |
+| | `GET/PUT /api/user/profile` | 个人信息 |
+| | `PUT /api/user/change-password` | 修改密码 |
+| | `GET /api/user/list` | 用户列表（管理员） |
+| 文档 | `POST /api/document` | 创建文档（自动触发索引） |
+| | `GET /api/document/list` | 文档列表（分页+筛选） |
+| | `PUT /api/document/{id}` | 更新文档 |
+| | `DELETE /api/document/{id}` | 删除文档 + 向量 |
+| | `POST /api/document/rebuild-index` | 重建索引（管理员） |
+| 问答 | `POST /api/qa/ask` | 提交问题 |
+| | `GET /api/qa/history` | 会话列表 |
+| | `GET /api/qa/session/{id}` | 会话详情 |
+| | `GET /api/qa/hot` | 热门问题 |
+| | `POST /api/qa/feedback` | 提交反馈 |
+| AI | `POST /api/ai/query` | RAG 问答代理 |
 
-### 项目结构
+---
 
+## 本地启动
+
+### 前提
+
+- Python 3.11、Node.js、MySQL 8.0、Redis 5.0（可选）
+
+### 一键启动（Windows）
+
+```powershell
+# 确保代理开启（如需访问外网 API）
+. $PROFILE; proxy on
+
+# 双击或运行
+.\start.bat
 ```
-backend/
-├── app/
-│   ├── main.py              # FastAPI 入口
-│   ├── config.py            # 配置中心
-│   ├── database.py          # SQLAlchemy 引擎
-│   ├── redis_client.py      # Redis（自动降级到 fakeredis）
-│   ├── models/              # ORM 模型（3张表）
-│   ├── schemas/             # Pydantic 请求/响应
-│   ├── services/            # 业务逻辑
-│   ├── routers/             # API 路由（18个端点）
-│   └── cache/               # Redis 缓存层
-├── init_db.sql              # 建库建表脚本
-├── requirements.txt
-└── .env
-```
 
-### 前端（React 18 + TypeScript + Vite）
+启动后自动打开浏览器，访问 `http://localhost:8002`。
 
-| 页面 | 路径 | 功能 |
-|------|------|------|
-| 登录/注册 | `/login` | JWT 认证 |
-| 智能问答 | `/chat` | 会话管理、热门问题、反馈 |
-| 知识库文档 | `/documents` | 文档列表、新增、删除 |
-| 个人中心 | `/profile` | 资料修改 |
-| 缓存管理 | `/admin` | 管理员实时缓存面板 |
+### 手动启动
 
-### 本地启动
-
-**1. 启动后端**
 ```bash
+# 1. AI 服务 (port 8003)
+cd ai_service
+pip install -r requirements.txt
+python -m uvicorn main:app --port 8003
+
+# 2. 业务后端 (port 8002)
 cd backend
 pip install -r requirements.txt
-mysql -u root -p < init_db.sql
-python -m uvicorn app.main:app --reload --port 8002
-```
+python -m uvicorn app.main:app --port 8002
 
-**2. 启动前端**
-```bash
+# 3. 前端
 cd frontend
 npm install
 npm run dev
 ```
 
-**3. 访问**
-- 前端：`http://localhost:5173`
-- 后端 Swagger：`http://localhost:8002/docs`
-- 后端缓存面板：`http://localhost:8002/admin/cache`
+### 首次使用
 
-### 验证结果 (2026-07-15)
+1. 注册账号 → 登录
+2. 进入「知识库文档」→ 上传几篇 .txt 文档 → 点击「重建索引」
+3. 进入「智能问答」→ 开始提问
 
-```
-✅ 用户注册  → 200  BCrypt 加密存储
-✅ JWT 登录  → 200  24h 有效期
-✅ 文档 CRUD → 200  分页 + 分类筛选
-✅ 问答缓存  → 200  命中 real Redis
-✅ 热门问题  → 200  ZSet 排序
+### 运行测试
+
+```bash
+# 后端测试（不含模型加载）
+cd backend
+python -m pytest tests/ --ignore=tests/test_reranker.py
+
+# 前端测试
+cd frontend
+npx vitest run
 ```

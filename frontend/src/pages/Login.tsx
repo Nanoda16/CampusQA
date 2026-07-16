@@ -2,10 +2,12 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Card, Tabs, Form, Input, Button, message } from 'antd';
 import { UserOutlined, LockOutlined, MailOutlined, LoginOutlined } from '@ant-design/icons';
-import api, { setAuth } from '../services/api';
+import api from '../services/api';
+import { useAuth } from '../context/AuthContext';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { login } = useAuth();
   const [activeTab, setActiveTab] = useState('login');
   const [loading, setLoading] = useState(false);
 
@@ -14,7 +16,7 @@ export default function Login() {
     try {
       const res: any = await api.post('/user/login', values);
       if (res.code === 200) {
-        setAuth(res.data.access_token, res.data.user);
+        login(res.data.access_token, res.data.user);
         message.success('登录成功');
         navigate('/chat');
       }

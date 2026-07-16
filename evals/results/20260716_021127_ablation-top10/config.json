@@ -1,0 +1,6 @@
+{
+  "mode": "retrieval",
+  "top_k": 10,
+  "tag": "ablation-top10",
+  "ai_service_url": "http://localhost:8003"
+}

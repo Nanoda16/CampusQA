@@ -9,9 +9,17 @@ const api = axios.create({
   },
 });
 
+// Dynamic token getter — set by AuthContext on mount/token change,
+// falls back to localStorage for environments outside React tree
+let tokenGetter: () => string | null = () => localStorage.getItem('token');
+
+export const setTokenGetter = (getter: () => string | null) => {
+  tokenGetter = getter;
+};
+
 // Request interceptor: add token
 api.interceptors.request.use((config) => {
-  const token = localStorage.getItem('token');
+  const token = tokenGetter();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
   }
@@ -36,24 +44,3 @@ api.interceptors.response.use(
 );
 
 export default api;
-
-export const setAuth = (token: string, user: any) => {
-  localStorage.setItem('token', token);
-  localStorage.setItem('user', JSON.stringify(user));
-};
-
-export const getAuth = () => {
-  const token = localStorage.getItem('token');
-  const userStr = localStorage.getItem('user');
-  return {
-    token,
-    user: userStr ? JSON.parse(userStr) : null,
-  };
-};
-
-export const clearAuth = () => {
-  localStorage.removeItem('token');
-  localStorage.removeItem('user');
-};
-
-export const isAuthenticated = () => !!localStorage.getItem('token');

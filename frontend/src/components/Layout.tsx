@@ -8,7 +8,6 @@ import {
   TeamOutlined,
 } from '@ant-design/icons';
 import { useNavigate, useLocation, Outlet } from 'react-router-dom';
-import { clearAuth, getAuth } from '../services/api';
 import { useEffect, useState } from 'react';
 
 const { Header, Sider, Content } = Layout;
@@ -19,7 +18,8 @@ export default function AppLayout() {
   const [user, setUser] = useState<any>(null);
 
   useEffect(() => {
-    const { user } = getAuth();
+    const userStr = localStorage.getItem('user');
+    const user = userStr ? JSON.parse(userStr) : null;
     if (!user) {
       navigate('/login');
       return;
@@ -28,7 +28,8 @@ export default function AppLayout() {
   }, [navigate]);
 
   const handleLogout = () => {
-    clearAuth();
+    localStorage.removeItem('token');
+    localStorage.removeItem('user');
     navigate('/login');
   };
 

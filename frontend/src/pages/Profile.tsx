@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Card, Form, Input, Button, Avatar, message, Statistic, Row, Col } from 'antd';
-import { UserOutlined, MailOutlined, EditOutlined } from '@ant-design/icons';
+import { UserOutlined, MailOutlined, EditOutlined, LockOutlined } from '@ant-design/icons';
 import api from '../services/api';
 
 export default function Profile() {
@@ -99,6 +99,28 @@ export default function Profile() {
             </Form>
           </Card>
 
+          <Row gutter={[16, 16]} className="mt-6">
+            <Col span={24}>
+              <Card className="shadow-sm" title={<><LockOutlined className="mr-2" />修改密码</>}>
+                <Form onFinish={async (values) => {
+                  try {
+                    await api.put('/user/change-password', values);
+                    message.success('密码修改成功');
+                  } catch (e) {}
+                }} layout="vertical">
+                  <Form.Item label="原密码" name="old_password" rules={[{ required: true, message: '请输入原密码' }]}>
+                    <Input.Password prefix={<LockOutlined />} placeholder="原密码" />
+                  </Form.Item>
+                  <Form.Item label="新密码" name="new_password" rules={[{ required: true, min: 6, message: '密码至少6位' }]}>
+                    <Input.Password prefix={<LockOutlined />} placeholder="新密码" />
+                  </Form.Item>
+                  <Form.Item>
+                    <Button type="primary" htmlType="submit" danger>修改密码</Button>
+                  </Form.Item>
+                </Form>
+              </Card>
+            </Col>
+          </Row>
           <Row gutter={[16, 16]} className="mt-6">
             <Col span={12}>
               <Card className="shadow-sm">

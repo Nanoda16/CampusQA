@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Button, Input, Tag, Modal, Form, Select, message, Space, Popconfirm } from 'antd';
-import { PlusOutlined, SearchOutlined, FileTextOutlined, DeleteOutlined, EditOutlined } from '@ant-design/icons';
+import { Card, Table, Button, Input, Tag, Modal, Form, Select, message, Space, Popconfirm, Upload } from 'antd';
+import { PlusOutlined, SearchOutlined, FileTextOutlined, DeleteOutlined, EditOutlined, ReloadOutlined, UploadOutlined } from '@ant-design/icons';
 import api from '../services/api';
 
 interface Document {
@@ -18,7 +18,27 @@ export default function Documents() {
   const [modalOpen, setModalOpen] = useState(false);
   const [modalMode, setModalMode] = useState<'create' | 'edit'>('create');
   const [editingId, setEditingId] = useState<number | null>(null);
+  const [rebuilding, setRebuilding] = useState(false);
   const [form] = Form.useForm();
+
+  const handleRebuild = async () => {
+    setRebuilding(true);
+    try {
+      const res: any = await api.post('/document/rebuild-index');
+      if (res.code === 200) {
+        message.success(
+          `重建索引完成: ${res.data?.docs_count || 0} 篇文档, ${res.data?.chunks_count || 0} 个切片`
+        );
+        loadDocuments();
+      } else {
+        message.error(res.message || '重建索引失败');
+      }
+    } catch (e) {
+      message.error('重建索引失败，请检查权限或联系管理员');
+    } finally {
+      setRebuilding(false);
+    }
+  };
 
   useEffect(() => { loadDocuments(); loadCategories(); }, [pagination.current, pagination.pageSize, category, keyword]);
 
@@ -91,7 +111,16 @@ export default function Documents() {
       <div className="flex flex-wrap gap-3 mb-4">
         <Input placeholder="搜索标题" value={keyword} onChange={(e) => setKeyword(e.target.value)} prefix={<SearchOutlined />} style={{ width: 240 }} allowClear />
         <Select placeholder="选择分类" value={category || undefined} onChange={(v) => setCategory(v || '')} allowClear style={{ width: 160 }} options={categories.map((c) => ({ label: c, value: c }))} />
-        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} className="bg-gradient-to-r from-blue-500 to-indigo-600 ml-auto">新增文档</Button>
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate} className="bg-gradient-to-r from-blue-500 to-indigo-600">新增文档</Button>
+        <Button
+          icon={<ReloadOutlined />}
+          onClick={handleRebuild}
+          loading={rebuilding}
+          disabled={rebuilding}
+          className="bg-gradient-to-r from-orange-500 to-red-600 text-white border-none hover:opacity-90"
+        >
+          {rebuilding ? '重建中...' : '重建索引'}
+        </Button>
       </div>
       <Table rowKey="id" columns={columns} dataSource={documents} loading={loading}
         pagination={{ ...pagination, showSizeChanger: true, showTotal: (t) => `共 ${t} 条`, onChange: (p, ps) => setPagination({ current: p, pageSize: ps, total: pagination.total }) }} />
@@ -99,6 +128,24 @@ export default function Documents() {
         <Form form={form} layout="vertical">
           <Form.Item label="标题" name="title" rules={[{ required: true, message: '请输入标题' }]}><Input /></Form.Item>
           <Form.Item label="内容" name="content"><Input.TextArea rows={6} /></Form.Item>
+          <Form.Item label="上传 .txt 文件">
+            <Upload
+              accept=".txt"
+              beforeUpload={(file) => {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                  const text = e.target?.result as string;
+                  form.setFieldsValue({ content: text, file_type: 'txt' });
+                  message.success(`已读取文件: ${file.name}`);
+                };
+                reader.readAsText(file);
+                return false; // 阻止自动上传
+              }}
+              showUploadList={false}
+            >
+              <Button icon={<UploadOutlined />}>选择 .txt 文件</Button>
+            </Upload>
+          </Form.Item>
           <Form.Item label="分类" name="category"><Input /></Form.Item>
           <Form.Item label="部门" name="department"><Input /></Form.Item>
           <Form.Item label="文件类型" name="file_type">

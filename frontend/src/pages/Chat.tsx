@@ -24,7 +24,7 @@ import {
   FireOutlined, DownOutlined, PaperClipOutlined,
 } from '@ant-design/icons';
 import api from '../services/api';
-import { getAuth } from '../services/api';
+import SourceCards from '../components/SourceCards';
 
 interface Message {
   id: number;
@@ -53,7 +53,7 @@ export default function Chat() {
   const [currentSession, setCurrentSession] = useState<string>('');
   const [hotQuestions, setHotQuestions] = useState<{ question: string; count: number }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const { user } = getAuth();
+  const user = JSON.parse(localStorage.getItem('user') || 'null');
   const [isRagMode, setIsRagMode] = useState(true); // RAG 模式默认开启
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
 
@@ -132,18 +132,48 @@ export default function Chat() {
 
     try {
       if (isRagMode) {
-        const res: any = await api.post('/ai/query', { question, top_k: 5 });
-        if (res.code === 200) {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: Date.now(),
-              role: 'ai',
-              content: res.data.answer || "未获取到回答",
-              sources: res.data.sources,
-              isRAG: true,
-            },
-          ]);
+        // Step 1: Create qa_record to persist conversation
+        const askRes: any = await api.post(`/qa/ask?question=${encodeURIComponent(question)}&session_id=${sessionId}`);
+        if (askRes.code === 200) {
+          if (askRes.data.from_cache) {
+            // Cache hit — use cached answer directly
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: Date.now(),
+                role: 'ai',
+                content: askRes.data.answer,
+                fromCache: true,
+              },
+            ]);
+          } else {
+            // Cache miss — call AI engine
+            const recordId = askRes.data.id;
+            const aiRes: any = await api.post('/ai/query', { question, top_k: 5 });
+            const answer = aiRes.code === 200 ? (aiRes.data.answer || "未获取到回答") : "未获取到回答";
+            const sources = aiRes.code === 200 ? aiRes.data.sources : undefined;
+
+            // Step 2: Save answer to backend
+            await api.post('/qa/answer', {
+              record_id: recordId,
+              answer,
+              sources,
+              tokens_used: 0,
+              duration_ms: 0,
+            });
+
+            setMessages((prev) => [
+              ...prev,
+              {
+                id: Date.now(),
+                role: 'ai',
+                content: answer,
+                sources,
+                isRAG: true,
+                recordId,
+              },
+            ]);
+          }
           loadSessions();
           loadHotQuestions();
         }
@@ -385,28 +415,7 @@ export default function Chat() {
                         />
                       </div>
                       {expandedSources.has(m.id) && (
-                        <div className="mt-2 space-y-2">
-                          {m.sources.map((src: any, i: number) => (
-                            <div key={i} className="bg-gray-50 rounded-lg p-3 border border-gray-200">
-                              <div className="text-sm font-medium text-gray-800 truncate">{src.title}</div>
-                              <div className="text-xs text-gray-500 mt-1 line-clamp-2">
-                                {src.content_preview
-                                  ? src.content_preview.length > 100
-                                    ? src.content_preview.substring(0, 100) + '...'
-                                    : src.content_preview
-                                  : ''}
-                              </div>
-                              {src.score !== undefined && (
-                                <Tag
-                                  color={src.score > 0.7 ? 'success' : src.score > 0.5 ? 'warning' : 'default'}
-                                  className="mt-2 text-xs"
-                                >
-                                  {(src.score * 100).toFixed(1)}%
-                                </Tag>
-                              )}
-                            </div>
-                          ))}
-                        </div>
+                        <SourceCards sources={m.sources} />
                       )}
                     </div>
                   )}

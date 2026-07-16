@@ -70,12 +70,33 @@ class QueryResponse(BaseModel):
 
 class ProcessRequest(BaseModel):
     file_path: str = Field(..., description="Path to the document file")
+    doc_id: str | None = Field(None, description="Override doc_id for consistent cleanup")
 
 
 class ProcessResponse(BaseModel):
     chunks_count: int
     indexed: int
     doc_id: str
+
+
+class RebuildDocument(BaseModel):
+    id: int = Field(..., description="Document ID from MySQL")
+    title: str = Field(default="", description="Document title")
+    content: str = Field(default="", description="Document content")
+    category: str = Field(default="", description="Document category")
+    source_url: str = Field(default="", description="Original source URL")
+
+
+class RebuildRequest(BaseModel):
+    documents: list[RebuildDocument] = Field(
+        ..., description="List of documents to index"
+    )
+
+
+class RebuildResponse(BaseModel):
+    docs_count: int
+    chunks_count: int
+    indexed_count: int
 
 
 # ---------------------------------------------------------------------------
@@ -145,7 +166,32 @@ async def query_stream(
 
 
 # ---------------------------------------------------------------------------
-# Re-index
+# Rebuild index from MySQL documents (new)
+# ---------------------------------------------------------------------------
+
+
+@app.post("/rebuild", response_model=RebuildResponse)
+async def rebuild(body: RebuildRequest) -> dict[str, Any]:
+    """Clear all vectors and rebuild index from provided documents.
+
+    Accepts a list of documents (id, title, content, category, source_url),
+    clears existing FAISS + BM25 indices and artifacts, then chunks, embeds,
+    and indexes every document.  Returns count statistics.
+    """
+    try:
+        docs = [d.model_dump() for d in body.documents]
+        if not docs:
+            return {"docs_count": 0, "chunks_count": 0, "indexed_count": 0}
+
+        result = pipeline.rebuild_from_documents(docs)
+        return result
+    except Exception as exc:
+        logger.exception("/rebuild failed")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+# ---------------------------------------------------------------------------
+# Re-index (legacy — keep backward compat)
 # ---------------------------------------------------------------------------
 
 
@@ -167,10 +213,24 @@ async def reindex() -> dict[str, Any]:
 @app.post("/process", response_model=ProcessResponse)
 async def process(body: ProcessRequest) -> dict[str, Any]:
     try:
-        result = pipeline.add_document(file_path=body.file_path)
+        result = pipeline.add_document(
+            file_path=body.file_path,
+            doc_id=body.doc_id,
+        )
         return result
     except Exception as exc:
         logger.exception("Process document failed")
+        raise HTTPException(status_code=500, detail=str(exc))
+
+
+@app.delete("/document/{doc_id}")
+async def delete_document(doc_id: str) -> dict[str, Any]:
+    """Remove a document artifact and its vectors from the index."""
+    try:
+        result = pipeline.remove_document(doc_id)
+        return result
+    except Exception as exc:
+        logger.exception("Delete document failed")
         raise HTTPException(status_code=500, detail=str(exc))
 
 

@@ -21,13 +21,23 @@ if (-not (Test-Path (Join-Path $dist "index.html"))) {
     Pop-Location
 }
 
-Write-Host "[1/3] Starting AI Service (port 8003)..." -ForegroundColor Yellow
-Start-Process -NoNewWindow -FilePath "python3.11" -ArgumentList "-m uvicorn main:app --host 0.0.0.0 --port 8003 --log-level warning" -WorkingDirectory $ai
+$aiLog = "$env:TEMP\ai_service.log"
+$aiErr = "$env:TEMP\ai_service_err.log"
+$beLog = "$env:TEMP\backend.log"
+$beErr = "$env:TEMP\backend_err.log"
 
-Start-Sleep 4
+# Clear ALL_PROXY — SOCKS5 breaks OpenAI httpx client
+$env:ALL_PROXY = ''
+# Skip HuggingFace network checks — model already cached locally
+$env:HF_HUB_OFFLINE = '1'
+
+Write-Host "[1/3] Starting AI Service (port 8003)..." -ForegroundColor Yellow
+Start-Process -FilePath "python3.11" -ArgumentList "-m uvicorn main:app --host 0.0.0.0 --port 8003 --log-level warning" -WorkingDirectory $ai -WindowStyle Hidden -RedirectStandardOutput $aiLog -RedirectStandardError $aiErr
+
+Start-Sleep 6
 
 Write-Host "[2/3] Starting Backend (port 8002)..." -ForegroundColor Yellow
-Start-Process -NoNewWindow -FilePath "python3.11" -ArgumentList "-m uvicorn app.main:app --host 0.0.0.0 --port 8002 --log-level warning" -WorkingDirectory $backend
+Start-Process -FilePath "python3.11" -ArgumentList "-m uvicorn app.main:app --host 0.0.0.0 --port 8002 --log-level warning" -WorkingDirectory $backend -WindowStyle Hidden -RedirectStandardOutput $beLog -RedirectStandardError $beErr
 
 Start-Sleep 4
 

@@ -1,0 +1,85 @@
+{
+  "validation_timestamp": "2026-07-16T09:35:00+08:00",
+  "task": "Task 0-2: Hardware validation + dependency checks",
+  "checks": {
+    "system_ram": {
+      "status": "PASS",
+      "detail": "Available physical memory: 8,316 MB (~8.12 GB)",
+      "requirement": "≥8 GB free",
+      "actual": "8.12 GB",
+      "note": "Sufficient RAM for embedding model (BAAI/bge-small-zh-v1.5, ~2GB) + reranker (BGE-reranker-base, ~4GB at inference)"
+    },
+    "disk_space": {
+      "status": "PASS",
+      "detail": "Free space on D: drive: 121.84 GB",
+      "requirement": "≥5 GB free",
+      "actual": "121.84 GB",
+      "note": "Plenty of space for FAISS index, artifacts, and model cache"
+    },
+    "sentence_transformers_package": {
+      "status": "PASS",
+      "detail": "sentence-transformers 3.4.1 installed",
+      "requirement": "sentence-transformers available via pip",
+      "actual": "3.4.1"
+    },
+    "bge_reranker_base": {
+      "status": "PASS",
+      "detail": "Model BAAI/bge-reranker-base loaded successfully via sentence-transformers. max_seq_length=512, model_type=xlm-roberta, hidden_size=768",
+      "requirement": "Model loads and returns max_seq_length ≥ 256",
+      "actual": "max_seq_length=512",
+      "note": "Note: Requires proxy (http://127.0.0.1:7890) for initial download from huggingface.co. Partial cache grew to full during repeated attempts (2GB total including safetensors + other formats). Inference ~4GB RAM at peak."
+    },
+    "jieba": {
+      "status": "PASS",
+      "detail": "jieba 0.42.1 installed. Tokenization test: '河海大学计算机学院' → ['河海大学', '计算机', '学院']",
+      "requirement": "jieba available and Chinese tokenization works",
+      "actual": "0.42.1",
+      "note": "Correctly segments compound university dept names"
+    },
+    "deepseek_api": {
+      "status": "PASS",
+      "detail": "DeepSeek API (deepseek-chat) accessible via proxy. 10/10 test queries generated [Sx] citation format. All 13 references valid (100% accuracy).",
+      "requirement": "API generates [Sx] citation format correctly (10 test queries)",
+      "actual": {
+        "total_queries": 10,
+        "queries_with_sx": 10,
+        "format_adoption_rate_pct": 100.0,
+        "total_sx_references": 13,
+        "valid_sx_references": 13,
+        "citation_accuracy_pct": 100.0,
+        "model": "deepseek-chat",
+        "base_url": "https://api.deepseek.com"
+      },
+      "note": "Uses default system prompt asking for [1][2][3] format. All references correctly mapped to provided context chunks. File: .sisyphus/evidence/task-2-deepseek-sx-test.json"
+    },
+    "deepseek_api_key": {
+      "status": "PASS",
+      "detail": "API key found in ai_service/.env (sk-6c8e06...)",
+      "requirement": "DEEPSEEK_API_KEY configured",
+      "actual": "Found in ai_service/.env"
+    },
+    "pytorch_available": {
+      "status": "PASS",
+      "detail": "PyTorch is required by sentence-transformers and loaded successfully with the model",
+      "requirement": "PyTorch available for model inference",
+      "actual": "Confirmed via successful model load"
+    }
+  },
+  "p1_downgrade_assessment": {
+    "status": "NO_DOWNGRADE_NEEDED",
+    "reason": "BGE-reranker-base loads successfully (max_seq_length=512). Full Cross-Encoder reranker implementation viable for P1. No downgrade to dense+BM25 only required.",
+    "note": "If deployment environment lacks proxy access for initial model download, consider pre-downloading or using a HuggingFace mirror (hf-mirror.com)."
+  },
+  "summary": {
+    "total_checks": 8,
+    "passed": 8,
+    "failed": 0,
+    "warnings": [],
+    "overall_status": "ALL_PASS",
+    "next_steps": [
+      "Proceed with P0 tasks (low-confidence rejection, prompt engineering, eval framework)",
+      "P1 reranker implementation can proceed: model loads and inference is viable",
+      "For production deployment, ensure proxy or HF mirror for model download"
+    ]
+  }
+}

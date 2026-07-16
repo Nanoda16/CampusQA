@@ -44,6 +44,8 @@ class DocumentResponse(BaseModel):
     tags: list | None
     chunk_count: int
     status: int
+    error_message: str | None = None
+    processed_at: datetime | None = None
     created_by: int | None
     created_at: datetime
     updated_at: datetime

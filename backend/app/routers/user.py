@@ -3,6 +3,7 @@
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Header
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -102,6 +103,28 @@ def get_profile(
     if not user:
         raise HTTPException(status_code=404, detail="用户不存在")
     return _success(data=UserResponse.model_validate(user).model_dump())
+
+
+class ChangePassword(BaseModel):
+    old_password: str
+    new_password: str
+
+
+@router.put("/change-password")
+def change_password(
+    data: ChangePassword,
+    user_id: int = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    """修改密码"""
+    user = UserService.get_by_id(db, user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if not UserService.verify_password(data.old_password, user.password_hash):
+        raise HTTPException(status_code=400, detail="原密码错误")
+    user.password_hash = UserService.hash_password(data.new_password)
+    db.commit()
+    return _success(message="密码修改成功")
 
 
 @router.put("/profile")

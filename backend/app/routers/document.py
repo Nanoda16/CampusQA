@@ -11,7 +11,8 @@ from app.schemas.document import (
     DocumentResponse,
     DocumentUpdate,
 )
-from app.services.document_service import DocumentService
+from app.services.document_service import DocumentService, IngestionService
+from app.services.rag_service import RAGService
 from app.services.user_service import UserService
 from app.routers.user import _get_current_user
 
@@ -27,14 +28,16 @@ def _success(data=None, message="success"):
     }
 
 
-@router.post("")
+@router.post("", status_code=202)
 def create_document(
     data: DocumentCreate,
     user_id: int = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
-    """创建文档"""
+    """创建文档（自动触发向量化入库，返回 202 表示已接受处理）"""
     doc = DocumentService.create(db, data, user_id)
+    # 自动触发异步入库
+    IngestionService().enqueue(doc.id, db)
     return _success(
         data=DocumentResponse.model_validate(doc).model_dump(),
         message="文档创建成功",
@@ -85,7 +88,7 @@ def get_document(
 ):
     """获取文档详情"""
     doc = DocumentService.get_by_id(db, document_id)
-    if not doc or doc.status == 2:
+    if not doc:
         raise HTTPException(status_code=404, detail="文档不存在")
     return _success(data=DocumentResponse.model_validate(doc).model_dump())
 
@@ -125,4 +128,57 @@ def delete_document(
     success = DocumentService.soft_delete(db, document_id)
     if not success:
         raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 通知 ai_service 清理工件（fire-and-forget，不阻塞响应）
+    try:
+        RAGService.delete_doc(document_id)
+    except Exception:
+        pass
+
     return _success(message="文档已删除")
+
+
+@router.post("/rebuild-index")
+def rebuild_index(
+    user_id: int = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    """重建索引：清空所有向量，从 MySQL 全量文档重新构建索引（仅管理员）"""
+    # 1. 验证管理员权限
+    current_user = UserService.get_by_id(db, user_id)
+    if not current_user or current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="仅管理员可执行重建索引操作")
+
+    # 2. 获取所有文档（不过滤状态）
+    docs = DocumentService.get_all_documents(db)
+    if not docs:
+        return _success(
+            data={"docs_count": 0, "chunks_count": 0, "indexed_count": 0},
+            message="数据库中没有文档",
+        )
+
+    # 3. 构建发送给 ai_service 的文档列表
+    documents = [
+        {
+            "id": doc.id,
+            "title": doc.title or "",
+            "content": doc.content or "",
+            "category": doc.category or "",
+            "source_url": doc.source_url or "",
+        }
+        for doc in docs
+    ]
+
+    # 4. 调用 ai_service /rebuild
+    try:
+        result = RAGService.rebuild_index(documents)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"AI 服务调用失败: {exc}",
+        )
+
+    return _success(
+        data=result,
+        message=f"重建索引完成: {result.get('docs_count', 0)} 篇文档, {result.get('chunks_count', 0)} 个切片",
+    )

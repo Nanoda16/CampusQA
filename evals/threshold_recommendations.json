@@ -1,0 +1,12 @@
+{
+  "hybrid": {
+    "threshold": 0.735386,
+    "hit_at_5": 0.425,
+    "description": "Dense + BM25 + RRF (no reranker)"
+  },
+  "hybrid+reranker": {
+    "threshold": 0.729363,
+    "hit_at_5": 0.4,
+    "description": "Dense + BM25 + RRF + cross-encoder reranker"
+  }
+}

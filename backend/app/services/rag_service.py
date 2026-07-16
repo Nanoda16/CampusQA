@@ -55,3 +55,33 @@ class RAGService:
                 json={"file_path": file_path},
             )
             return resp.json()
+
+    @staticmethod
+    def rebuild_index(documents: list[dict]) -> dict:
+        """向 ai_service 发送重建索引请求（同步调用）。
+
+        Parameters
+        ----------
+        documents : list[dict]
+            每个 dict 包含 ``id``, ``title``, ``content``, ``category``,
+            ``source_url``。
+
+        Returns
+        -------
+        dict
+            ``{"docs_count", "chunks_count", "indexed_count"}``。
+        """
+        with httpx.Client(timeout=300) as client:
+            resp = client.post(
+                f"{AI_SERVICE_URL}/rebuild",
+                json={"documents": documents},
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+    @staticmethod
+    def delete_doc(doc_id: int) -> dict:
+        """通知 ai_service 删除文档工件和向量（同步调用）。"""
+        with httpx.Client(timeout=10) as client:
+            resp = client.delete(f"{AI_SERVICE_URL}/document/{doc_id}")
+            return resp.json()

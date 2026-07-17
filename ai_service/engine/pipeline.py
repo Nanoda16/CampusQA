@@ -235,6 +235,7 @@ class RAGPipeline:
         min_score: float = 0.0,
         temperature: float = 0.3,
         max_tokens: int = 1024,
+        history: list[dict] | None = None,
     ) -> dict[str, Any]:
         """Run the full RAG pipeline synchronously.
 
@@ -250,6 +251,8 @@ class RAGPipeline:
             LLM sampling temperature (default 0.3).
         max_tokens : int
             Maximum tokens in the generated response (default 1024).
+        history : list[dict] | None
+            Prior conversation turns for multi-turn context resolution.
 
         Returns
         -------
@@ -311,8 +314,8 @@ class RAGPipeline:
             logger.debug("Reranking %d chunks for query: %s", len(chunks), query[:60])
             chunks = self._rerank_chunks(query, chunks)
 
-        # 3. Build prompt pair from retrieved chunks
-        system_prompt, user_prompt = prompts.build_prompt(query, chunks)
+        # 3. Build prompt pair from retrieved chunks (+ optional history)
+        system_prompt, user_prompt = prompts.build_prompt(query, chunks, history)
 
         # 4. Generate answer
         answer = self.generator.generate(
@@ -345,6 +348,7 @@ class RAGPipeline:
         min_score: float = 0.0,
         temperature: float = 0.3,
         max_tokens: int = 1024,
+        history: list[dict] | None = None,
     ) -> GeneratorType[dict[str, Any], None, None]:
         """Run the RAG pipeline with streaming token output.
 
@@ -449,8 +453,8 @@ class RAGPipeline:
         ]
         yield {"type": "sources", "data": sources}
 
-        # 5. Build prompt
-        system_prompt, user_prompt = prompts.build_prompt(query, chunks)
+        # 5. Build prompt (+ optional history for multi-turn context)
+        system_prompt, user_prompt = prompts.build_prompt(query, chunks, history)
 
         # 6. Stream tokens from the LLM
         answer_parts: list[str] = []

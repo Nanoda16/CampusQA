@@ -81,34 +81,30 @@ export default function AppLayout() {
 
   return (
     <Layout className="min-h-screen">
-      <Sider
-        theme="light"
-        width={220}
-        className="shadow-md"
-        style={{ background: '#fff' }}
-      >
-        <div className="h-16 flex items-center justify-center border-b border-gray-100">
-          <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white font-bold">
+      <Sider theme="dark" width={220}>
+        <div className="h-16 flex items-center px-5 border-b border-white/10">
+          <div className="flex items-center gap-2.5">
+            <div className="w-8 h-8 rounded-lg bg-white/10 flex items-center justify-center text-white text-sm font-semibold tracking-wide">
               HHU
             </div>
-            <span className="font-bold text-gray-800">校园问答助手</span>
+            <span className="font-semibold text-white/95">校园问答助手</span>
           </div>
         </div>
         <Menu
+          theme="dark"
           mode="inline"
           selectedKeys={[location.pathname]}
           items={menuItems}
           onClick={({ key }) => navigate(key)}
-          style={{ borderRight: 0, paddingTop: 8 }}
+          style={{ borderRight: 0, paddingTop: 8, background: 'transparent' }}
         />
-        <div className="absolute bottom-0 left-0 right-0 p-4 text-xs text-gray-400 text-center border-t border-gray-100">
+        <div className="absolute bottom-0 left-0 right-0 p-4 text-xs text-white/35 text-center border-t border-white/10">
           CampusQA v1.0
         </div>
       </Sider>
 
       <Layout>
-        <Header className="bg-white shadow-sm px-6 flex items-center justify-between" style={{ height: 64 }}>
+        <Header className="bg-white border-b border-slate-200 px-6 flex items-center justify-between" style={{ height: 64 }}>
           <div className="text-gray-500 text-sm">
             {location.pathname === '/chat' && '智能问答 · 基于 RAG + LLM'}
             {location.pathname === '/documents' && '知识库文档管理'}

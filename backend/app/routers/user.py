@@ -148,7 +148,7 @@ def get_user_list(
     page: int = 1,
     page_size: int = 20,
     role: str | None = None,
-    status: int | None = None,
+    status: int | None = 1,
     keyword: str | None = None,
     user_id: int = Depends(_get_current_user),
     db: Session = Depends(get_db),
@@ -248,7 +248,7 @@ def admin_delete_user(
     user_id: int = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
-    """管理员删除用户（软删除：设置status=0）"""
+    """管理员删除用户（硬删除：彻底从数据库移除）"""
     current_user = UserService.get_by_id(db, user_id)
     if not current_user or current_user.role != "admin":
         raise HTTPException(status_code=403, detail="无权限访问")
@@ -257,6 +257,5 @@ def admin_delete_user(
     target = UserService.get_by_id(db, target_user_id)
     if not target:
         raise HTTPException(status_code=404, detail="用户不存在")
-    target.status = 0
-    db.commit()
-    return _success(message="用户已删除")
+    UserService.delete_user(db, target_user_id)
+    return _success(message="用户已永久删除")

@@ -88,9 +88,7 @@ class DocumentService:
             query = query.filter(Document.department == department)
         if status is not None:
             query = query.filter(Document.status == status)
-        else:
-            # 默认排除 FAILED（旧系统是排除"已归档"）
-            query = query.filter(Document.status != DocumentStatus.FAILED)
+        # 不再默认排除任何状态 — Day4 需要看到 FAILED 的记录
         if keyword:
             like_pattern = f"%{keyword}%"
             query = query.filter(
@@ -140,6 +138,13 @@ class IngestionService:
 
     _executor = ThreadPoolExecutor(max_workers=1)
 
+    @classmethod
+    def _get_executor(cls) -> ThreadPoolExecutor:
+        """获取或重建线程池，防止在 shutdown 后无法提交新任务"""
+        if cls._executor is None or getattr(cls._executor, "_shutdown", False):
+            cls._executor = ThreadPoolExecutor(max_workers=1)
+        return cls._executor
+
     def __init__(self, session_factory=None):
         """初始化入库服务
 
@@ -165,7 +170,7 @@ class IngestionService:
         doc.error_message = None
         db.commit()
         # 后台异步执行
-        self._executor.submit(self._process_document, document_id)
+        self._get_executor().submit(self._process_document, document_id)
 
     # ── 后台工作线程 ──────────────────────────────────────
 
@@ -200,18 +205,22 @@ class IngestionService:
             db.close()
 
     def _call_process_api(self, doc: Document) -> dict:
-        """将文档写入临时 .md 文件并调用 ai_service /process
+        """向 ai_service 提交文档处理
 
-        Parameters
-        ----------
-        doc : Document
-            待处理的文档对象（含 title、content 等字段）。
-
-        Returns
-        -------
-        dict
-            ai_service 返回的 JSON 响应（含 chunks_count）。
+        如果文档有关联的真实文件（file_path 指向存在的文件），
+        直接将文件路径发给 AI 服务；否则写临时 .md 文件回退。
         """
+        # ── 优先使用已上传的真实文件 ──────────────────────────
+        if doc.file_path and os.path.isfile(doc.file_path):
+            resp = httpx.post(
+                f"{AI_SERVICE_URL}/process",
+                json={"file_path": doc.file_path, "doc_id": str(doc.id)},
+                timeout=120.0,
+            )
+            resp.raise_for_status()
+            return resp.json()
+
+        # ── 回退：从 title + content 写临时 .md ───────────────
         fd, path = tempfile.mkstemp(suffix=".md", prefix=f"doc_{doc.id}_")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:

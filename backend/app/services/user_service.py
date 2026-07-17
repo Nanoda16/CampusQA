@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 
 from app.config import settings
 from app.models.user import User
+from app.models.qa_record import QARecord
+from app.models.document import Document
 from app.schemas.user import UserCreate, UserUpdate
 
 # 密码加密上下文
@@ -143,3 +145,15 @@ class UserService:
             .all()
         )
         return users, total
+
+    @staticmethod
+    def delete_user(db: Session, user_id: int) -> None:
+        """硬删除用户：先清理关联记录，再删除用户"""
+        db.query(QARecord).filter(QARecord.user_id == user_id).delete()
+        db.query(Document).filter(Document.created_by == user_id).update(
+            {"created_by": None}
+        )
+        user = UserService.get_by_id(db, user_id)
+        if user:
+            db.delete(user)
+            db.commit()

@@ -14,7 +14,7 @@ export default function UserManagement() {
   const [form] = Form.useForm();
   const [keyword, setKeyword] = useState('');
   const [filterRole, setFilterRole] = useState<string | undefined>();
-  const [filterStatus, setFilterStatus] = useState<number | undefined>();
+  const [filterStatus, setFilterStatus] = useState<number | undefined>(1);
 
   useEffect(() => { loadUsers(); }, [page, filterRole, filterStatus]);
   useEffect(() => { setPage(1); loadUsers(); }, [keyword]);
@@ -43,7 +43,13 @@ export default function UserManagement() {
   };
   const updateRole = async (id: number, role: string) => { try { await api.put(`/user/${id}/role?role=${role}`); loadUsers(); } catch (e) {} };
   const toggleStatus = async (id: number, s: number) => { try { await api.put(`/user/${id}/status?status=${s}`); message.success(s === 1 ? '已启用' : '已禁用'); loadUsers(); } catch (e) {} };
-  const deleteUser = async (id: number) => { try { await api.delete(`/user/${id}`); message.success('已删除'); loadUsers(); } catch (e) {} };
+  const deleteUser = async (id: number) => {
+    try {
+      await api.delete(`/user/${id}`);
+      message.success('已永久删除');
+      loadUsers();
+    } catch (e) {}
+  };
 
   return (
     <Card className="shadow-sm" title={<><UserOutlined className="mr-2" />人员管理</>} extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增用户</Button>}>
@@ -74,7 +80,7 @@ export default function UserManagement() {
           { title: '操作', width: 140, render: (_: any, r: any) => (
             <div className="flex gap-1">
               <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>编辑</Button>
-              <Popconfirm title="确认删除？" onConfirm={() => deleteUser(r.id)} okText="删除" cancelText="取消">
+              <Popconfirm title="此操作不可撤销，将永久删除该用户及其所有问答记录" description="确认删除？" onConfirm={() => deleteUser(r.id)} okText="确认删除" okType="danger" cancelText="取消">
                 <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
               </Popconfirm>
             </div>

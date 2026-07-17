@@ -47,7 +47,7 @@ export default function Profile() {
             <Avatar
               size={100}
               icon={<UserOutlined />}
-              className="bg-gradient-to-br from-blue-500 to-indigo-600 mb-4"
+              className="bg-brand-700 mb-4"
             />
             <h3 className="text-xl font-bold text-gray-800 mb-1">{user?.nickname || user?.username}</h3>
             <p className="text-gray-500 mb-4">{user?.email || '未设置邮箱'}</p>
@@ -91,7 +91,6 @@ export default function Profile() {
                   type="primary"
                   htmlType="submit"
                   loading={loading}
-                  className="bg-gradient-to-r from-blue-500 to-indigo-600"
                 >
                   保存修改
                 </Button>

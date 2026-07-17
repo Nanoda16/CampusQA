@@ -17,11 +17,15 @@ export const setTokenGetter = (getter: () => string | null) => {
   tokenGetter = getter;
 };
 
-// Request interceptor: add token
+// Request interceptor: add token, fix FormData content-type
 api.interceptors.request.use((config) => {
   const token = tokenGetter();
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  }
+  // Let axios set multipart/form-data with boundary for FormData
+  if (config.data instanceof FormData) {
+    delete config.headers['Content-Type'];
   }
   return config;
 });

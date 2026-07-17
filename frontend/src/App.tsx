@@ -17,7 +17,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 function App() {
   return (
-    <ConfigProvider locale={zhCN} theme={{ token: { colorPrimary: '#2563eb' } }}>
+    <ConfigProvider
+      locale={zhCN}
+      theme={{
+        token: {
+          colorPrimary: '#1f4d8a',
+          borderRadius: 8,
+          colorBgLayout: '#f4f6f9',
+          fontFamily:
+            "-apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif",
+        },
+        components: {
+          Layout: { siderBg: '#132f54', headerBg: '#ffffff' },
+          Menu: {
+            darkItemBg: '#132f54',
+            darkItemSelectedBg: '#1f4d8a',
+            darkItemHoverBg: '#183d6e',
+          },
+        },
+      }}
+    >
       <AuthProvider>
         <BrowserRouter>
           <Routes>

@@ -81,8 +81,53 @@ def _compute_doc_id(file_path: str) -> str:
     return hashlib.md5(absolute.encode("utf-8")).hexdigest()
 
 
-def _build_doc(file_path: str) -> dict:
+def _extract_text_from_pdf(file_path: str) -> str:
+    """Extract text from a PDF file using pypdf."""
+    try:
+        from pypdf import PdfReader
+    except ImportError:
+        raise ImportError(
+            "pypdf is required to read PDF files. "
+            "Install it with: pip install pypdf"
+        )
+
+    reader = PdfReader(file_path)
+    pages: list[str] = []
+    for page in reader.pages:
+        text = page.extract_text()
+        if text:
+            pages.append(text)
+    return "\n".join(pages)
+
+
+def _extract_text_from_docx(file_path: str) -> str:
+    """Extract text from a DOCX file using python-docx."""
+    try:
+        from docx import Document
+    except ImportError:
+        raise ImportError(
+            "python-docx is required to read DOCX files. "
+            "Install it with: pip install python-docx"
+        )
+
+    doc = Document(file_path)
+    paragraphs: list[str] = []
+    for para in doc.paragraphs:
+        if para.text:
+            paragraphs.append(para.text)
+    return "\n".join(paragraphs)
+
+
+def _build_doc(file_path: str, raw_content: str | None = None) -> dict:
     """Build a document dict from a file path.
+
+    Parameters
+    ----------
+    file_path : str
+        Absolute or relative path to the document file.
+    raw_content : str, optional
+        Pre-extracted raw text content (for binary formats such as PDF/DOCX).
+        When ``None`` (default), the file is read as UTF-8 text.
 
     Returns
     -------
@@ -90,7 +135,10 @@ def _build_doc(file_path: str) -> dict:
         ``{"doc_id", "title", "content", "category", "source_url", "file_path"}``
     """
     path = Path(file_path)
-    raw = _read_file_with_bom_handling(file_path)
+    if raw_content is None:
+        raw = _read_file_with_bom_handling(file_path)
+    else:
+        raw = raw_content
     content = _clean_text(raw)
     title = _extract_title(raw, path.name)
     source_url = _extract_source_url(raw)
@@ -160,7 +208,8 @@ def load_file(file_path: str) -> dict:
     Parameters
     ----------
     file_path : str
-        Path to the file.  Supported extensions: ``.md``, ``.txt``.
+        Path to the file.  Supported extensions: ``.md``, ``.txt``, ``.pdf``,
+        ``.docx``, ``.doc`` (best-effort).
 
     Returns
     -------
@@ -172,20 +221,42 @@ def load_file(file_path: str) -> dict:
     FileNotFoundError
         If *file_path* does not exist.
     ValueError
-        If the file extension is not supported.
+        If the file extension is not supported, or legacy ``.doc`` cannot
+        be parsed (with a suggestion to convert to ``.docx`` / ``.pdf``).
     """
     path = Path(file_path)
     if not path.exists():
         raise FileNotFoundError(f"File not found: {file_path}")
 
     ext = path.suffix.lower()
-    if ext not in (".md", ".txt"):
-        raise ValueError(
-            f"Unsupported file type: '{ext}'. "
-            f"Only .md and .txt files are supported."
-        )
 
-    return _build_doc(file_path)
+    if ext == ".md" or ext == ".txt":
+        return _build_doc(file_path)
+
+    if ext == ".pdf":
+        raw = _extract_text_from_pdf(file_path)
+        return _build_doc(file_path, raw_content=raw)
+
+    if ext == ".docx":
+        raw = _extract_text_from_docx(file_path)
+        return _build_doc(file_path, raw_content=raw)
+
+    # Legacy .doc — best-effort via python-docx; most will fail gracefully
+    if ext == ".doc":
+        try:
+            raw = _extract_text_from_docx(file_path)
+            return _build_doc(file_path, raw_content=raw)
+        except Exception as exc:
+            raise ValueError(
+                f"Cannot parse legacy .doc file: {file_path}. "
+                f"python-docx cannot read the old OLE2 format. "
+                f"Please convert the file to .docx or .pdf and try again."
+            ) from exc
+
+    raise ValueError(
+        f"Unsupported file type: '{ext}'. "
+        f"Supported extensions: .md, .txt, .pdf, .docx, .doc (best-effort)."
+    )
 
 
 def get_doc_count(knowledge_dir: str | None = None) -> int:

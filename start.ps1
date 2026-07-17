@@ -39,9 +39,23 @@ Start-Sleep 6
 Write-Host "[2/3] Starting Backend (port 8002)..." -ForegroundColor Yellow
 Start-Process -FilePath "python3.11" -ArgumentList "-m uvicorn app.main:app --host 0.0.0.0 --port 8002 --log-level warning" -WorkingDirectory $backend -WindowStyle Hidden -RedirectStandardOutput $beLog -RedirectStandardError $beErr
 
-Start-Sleep 4
-
-Write-Host "[3/3] Opening browser..." -ForegroundColor Yellow
+Write-Host "[3/3] Waiting for backend to be ready..." -ForegroundColor Yellow
+# Poll /api/health until the backend actually responds, so the browser
+# never opens against a not-yet-ready server (which forced a manual refresh).
+$ready = $false
+for ($i = 1; $i -le 30; $i++) {
+    try {
+        $resp = Invoke-WebRequest "http://localhost:8002/api/health" -TimeoutSec 2 -UseBasicParsing
+        if ($resp.StatusCode -eq 200) { $ready = $true; break }
+    } catch {
+        Start-Sleep -Milliseconds 700
+    }
+}
+if ($ready) {
+    Write-Host "      Backend ready, opening browser." -ForegroundColor Green
+} else {
+    Write-Host "      Backend not confirmed after ~20s, opening anyway." -ForegroundColor DarkYellow
+}
 Start-Process "http://localhost:8002"
 
 Write-Host ""

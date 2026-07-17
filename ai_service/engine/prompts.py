@@ -100,7 +100,44 @@ def build_context(chunks: list[dict]) -> str:
     return "\n\n".join(parts)
 
 
-def build_prompt(query: str, chunks: list[dict]) -> tuple[str, str]:
+def build_history(history: list[dict] | None) -> str:
+    """Format prior conversation turns into a 【历史对话】block.
+
+    Parameters
+    ----------
+    history : list[dict] | None
+        Prior turns, each ``{"role": "user"|"ai", "content": str}`` in
+        chronological order.  ``None`` or empty yields an empty string.
+
+    Returns
+    -------
+    str
+        Formatted history block, or ``""`` when there is nothing to show.
+        Each answer is truncated to keep the prompt compact.
+    """
+    if not history:
+        return ""
+
+    lines: list[str] = []
+    for turn in history:
+        role = turn.get("role", "")
+        content = (turn.get("content") or "").strip()
+        if not content:
+            continue
+        # Truncate long answers to keep the prompt within budget
+        if len(content) > 300:
+            content = content[:300] + "…"
+        speaker = "用户" if role == "user" else "助手"
+        lines.append(f"{speaker}：{content}")
+
+    return "\n".join(lines)
+
+
+def build_prompt(
+    query: str,
+    chunks: list[dict],
+    history: list[dict] | None = None,
+) -> tuple[str, str]:
     """Assemble the full (system_prompt, user_prompt) pair for the LLM.
 
     Parameters
@@ -109,6 +146,11 @@ def build_prompt(query: str, chunks: list[dict]) -> tuple[str, str]:
         The user's original question.
     chunks : list[dict]
         Retrieved chunks (same format as ``build_context``).
+    history : list[dict] | None
+        Prior conversation turns for multi-turn context resolution.  Each
+        turn is ``{"role": "user"|"ai", "content": str}``.  When provided,
+        a 【历史对话】block is prepended so the model can resolve
+        follow-up references (e.g. "它"/"那个") against earlier turns.
 
     Returns
     -------
@@ -117,7 +159,17 @@ def build_prompt(query: str, chunks: list[dict]) -> tuple[str, str]:
         completion call.
     """
     context = build_context(chunks)
-    user_prompt = f"【参考资料】\n{context}\n\n【问题】\n{query}"
+    history_block = build_history(history)
+
+    parts: list[str] = []
+    if history_block:
+        parts.append(
+            "【历史对话】（仅用于理解本轮问题中的指代，回答仍须依据下方参考资料）\n"
+            + history_block
+        )
+    parts.append(f"【参考资料】\n{context}")
+    parts.append(f"【问题】\n{query}")
+    user_prompt = "\n\n".join(parts)
     return SYSTEM_PROMPT, user_prompt
 
 

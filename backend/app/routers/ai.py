@@ -99,12 +99,32 @@ async def query(
 async def query_stream(
     question: str,
     top_k: int = 5,
+    history: str = "",
     user_id: int = Depends(_get_current_user),
 ):
-    """SSE 流式 RAG 问答查询"""
+    """SSE 流式 RAG 问答查询
+
+    ``history`` 为 JSON 编码的历史轮次数组，用于多轮对话指代消解。
+    """
+    import json
+
+    parsed_history: list[dict] = []
+    if history:
+        try:
+            raw = json.loads(history)
+            if isinstance(raw, list):
+                parsed_history = [
+                    {"role": t.get("role", ""), "content": t.get("content", "")}
+                    for t in raw
+                    if isinstance(t, dict)
+                ]
+        except (ValueError, TypeError):
+            parsed_history = []
 
     async def event_generator():
-        async for event in RAGService.query_stream(question=question, top_k=top_k):
+        async for event in RAGService.query_stream(
+            question=question, top_k=top_k, history=parsed_history
+        ):
             yield f"data: {event}\n\n"
 
     return StreamingResponse(

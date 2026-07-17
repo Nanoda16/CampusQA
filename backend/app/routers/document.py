@@ -1,11 +1,15 @@
 """文档管理 API 路由"""
 
+import os
 import time
+import uuid
+from pathlib import Path
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
 
 from app.database import get_db
+from app.models.enums import DocumentStatus
 from app.schemas.document import (
     DocumentCreate,
     DocumentResponse,
@@ -41,6 +45,81 @@ def create_document(
     return _success(
         data=DocumentResponse.model_validate(doc).model_dump(),
         message="文档创建成功",
+    )
+
+
+# ── 上传限制 ──────────────────────────────────────────────
+_ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt"}
+_MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
+_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
+
+
+@router.post("/upload", status_code=202)
+def upload_document(
+    file: UploadFile = File(...),
+    title: str | None = Form(None),
+    category: str | None = Form(None),
+    department: str | None = Form(None),
+    user_id: int = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    """上传文件并创建文档（自动触发向量化入库）"""
+    # 1. 验证扩展名（大小写不敏感）
+    original_filename = file.filename or "untitled"
+    stem, ext = os.path.splitext(original_filename)
+    ext_lower = ext.lower()
+    if ext_lower not in _ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"不支持的文件类型: {ext}，仅支持 pdf/doc/docx/txt",
+        )
+
+    # 2. 读取文件内容并校验大小
+    content_bytes = file.file.read()
+    if len(content_bytes) > _MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail="文件大小超过 50MB 限制",
+        )
+
+    # 3. 保存文件到 uploads/ 目录
+    _UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
+    safe_stem = "".join(c if c.isalnum() or c in "._-" else "_" for c in stem)[:64]
+    safe_name = f"{uuid.uuid4().hex}_{safe_stem}{ext_lower}"
+    file_path = str((_UPLOAD_DIR / safe_name).resolve())
+    with open(file_path, "wb") as f:
+        f.write(content_bytes)
+
+    # 4. 确定文件类型与标题
+    file_type = ext_lower.lstrip(".")
+    doc_title = title.strip() if title and title.strip() else stem
+
+    # 5. 创建文档记录
+    doc_data = DocumentCreate(
+        title=doc_title,
+        file_type=file_type,
+        file_path=file_path,
+        category=category,
+        department=department,
+        status=DocumentStatus.UPLOADED,
+    )
+    doc = DocumentService.create(db, doc_data, user_id)
+
+    # 6. 对 .txt 文件直接读取内容（便于关键字搜索）
+    if ext_lower == ".txt":
+        try:
+            text_content = content_bytes.decode("utf-8")
+        except UnicodeDecodeError:
+            text_content = content_bytes.decode("gbk", errors="replace")
+        doc.content = text_content
+        db.commit()
+
+    # 7. 触发异步处理
+    IngestionService().enqueue(doc.id, db)
+
+    return _success(
+        data=DocumentResponse.model_validate(doc).model_dump(),
+        message="文档上传成功",
     )
 
 
@@ -107,6 +186,42 @@ def update_document(
     return _success(
         data=DocumentResponse.model_validate(doc).model_dump(),
         message="文档更新成功",
+    )
+
+
+@router.post("/{document_id}/reprocess")
+def reprocess_document(
+    document_id: int,
+    user_id: int = Depends(_get_current_user),
+    db: Session = Depends(get_db),
+):
+    """重新处理文档：清空旧向量后重新入库"""
+    doc = DocumentService.get_by_id(db, document_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="文档不存在")
+
+    # 仅创建者或管理员可操作
+    current_user = UserService.get_by_id(db, user_id)
+    if doc.created_by != user_id and (not current_user or current_user.role != "admin"):
+        raise HTTPException(status_code=403, detail="无权限操作此文档")
+
+    # 清空 ai_service 中的旧向量
+    try:
+        RAGService.delete_doc(document_id)
+    except Exception:
+        pass
+
+    # 重置状态并重新入队
+    doc.status = DocumentStatus.UPLOADED
+    doc.error_message = None
+    doc.chunk_count = 0
+    db.commit()
+
+    IngestionService().enqueue(doc.id, db)
+
+    return _success(
+        data=DocumentResponse.model_validate(doc).model_dump(),
+        message="文档已重新加入处理队列",
     )
 
 

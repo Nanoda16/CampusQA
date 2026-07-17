@@ -23,11 +23,40 @@ app.include_router(document_router)
 app.include_router(qa_router)
 app.include_router(admin_router)
 
+
+@app.get("/api/health")
+def health_check():
+    """健康检查
+
+    必须在前端 catch-all 路由之前注册，否则 ``/{full_path:path}`` 会先
+    匹配并对所有 ``api/`` 前缀返回 404，导致健康检查永远不可达。
+    """
+    return {
+        "code": 200,
+        "message": "success",
+        "data": {
+            "service": "CampusQA",
+            "version": "1.0.0",
+            "status": "running",
+        },
+        "timestamp": int(time.time()),
+    }
+
+
 # ---- Frontend static files (build first: cd frontend && npm run build) ----
 FRONTEND_DIR = Path(__file__).resolve().parent.parent.parent / "frontend" / "dist"
 if FRONTEND_DIR.exists():
     app.mount("/assets", StaticFiles(directory=FRONTEND_DIR / "assets"), name="frontend_assets")
     # SPA fallback: serve index.html for all non-API routes
+    # index.html must never be cached, otherwise browsers keep loading stale
+    # bundle references after a rebuild. Hashed assets under /assets are
+    # immutable and safe to cache aggressively.
+    _NO_CACHE = {
+        "Cache-Control": "no-cache, no-store, must-revalidate",
+        "Pragma": "no-cache",
+        "Expires": "0",
+    }
+
     @app.get("/{full_path:path}", include_in_schema=False)
     async def serve_frontend(full_path: str, request: Request):
         # Skip API routes (they should have matched above routers)
@@ -35,8 +64,11 @@ if FRONTEND_DIR.exists():
             return HTMLResponse(status_code=404)
         fp = FRONTEND_DIR / full_path
         if fp.exists() and fp.is_file():
+            # Serve real files as-is; only index.html gets no-cache below
+            if fp.name == "index.html":
+                return FileResponse(fp, headers=_NO_CACHE)
             return FileResponse(fp)
-        return FileResponse(FRONTEND_DIR / "index.html")
+        return FileResponse(FRONTEND_DIR / "index.html", headers=_NO_CACHE)
 
 
 _admin_html = Path(__file__).resolve().parent / "static" / "admin.html"
@@ -59,18 +91,3 @@ def on_startup():
     except Exception as e:
         print(f"✗ 数据库表初始化失败: {e}")
         print("  请确保 MySQL 服务已启动且连接信息正确")
-
-
-@app.get("/api/health")
-def health_check():
-    """健康检查"""
-    return {
-        "code": 200,
-        "message": "success",
-        "data": {
-            "service": "CampusQA",
-            "version": "1.0.0",
-            "status": "running",
-        },
-        "timestamp": int(time.time()),
-    }

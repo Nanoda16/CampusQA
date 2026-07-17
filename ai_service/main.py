@@ -58,9 +58,17 @@ pipeline: RAGPipeline = RAGPipeline()
 # ---------------------------------------------------------------------------
 
 
+class HistoryTurn(BaseModel):
+    role: str = Field(..., description='"user" or "ai"')
+    content: str = Field(default="", description="Turn text")
+
+
 class QueryRequest(BaseModel):
     question: str = Field(..., description="The user's question")
     top_k: int = Field(default=5, ge=1, le=50, description="Number of chunks to retrieve")
+    history: list[HistoryTurn] = Field(
+        default_factory=list, description="Prior conversation turns for multi-turn context"
+    )
 
 
 class QueryResponse(BaseModel):
@@ -127,7 +135,8 @@ async def health() -> dict[str, str]:
 @app.post("/query", response_model=QueryResponse)
 async def query(body: QueryRequest) -> dict[str, Any]:
     try:
-        result = pipeline.run(query=body.question, top_k=body.top_k)
+        history = [t.model_dump() for t in body.history]
+        result = pipeline.run(query=body.question, top_k=body.top_k, history=history)
         return result
     except Exception as exc:
         logger.exception("Sync query failed")
@@ -143,24 +152,41 @@ async def query(body: QueryRequest) -> dict[str, Any]:
 async def query_stream(
     question: str = Query(..., description="The user's question"),
     top_k: int = Query(default=5, ge=1, le=50),
+    history: str = Query(default="", description="JSON-encoded prior turns"),
 ) -> EventSourceResponse:
-    async def event_generator():
+    # history arrives as a JSON string (GET query param); parse defensively
+    parsed_history: list[dict] = []
+    if history:
         try:
-            for event in pipeline.run_stream(query=question, top_k=top_k):
-                event_type = event.pop("type", None)
-                if event_type == "status":
-                    yield {"event": "status", "data": event}
-                elif event_type == "sources":
-                    yield {"event": "sources", "data": event}
-                elif event_type == "token":
-                    yield {"event": "token", "data": event}
-                elif event_type == "done":
-                    yield {"event": "done", "data": event}
-                else:
-                    yield {"event": "unknown", "data": event}
+            import json as _json
+
+            raw = _json.loads(history)
+            if isinstance(raw, list):
+                parsed_history = [
+                    {"role": t.get("role", ""), "content": t.get("content", "")}
+                    for t in raw
+                    if isinstance(t, dict)
+                ]
+        except (ValueError, TypeError):
+            logger.warning("Failed to parse history query param; ignoring")
+
+    async def event_generator():
+        import json as _json
+
+        try:
+            for event in pipeline.run_stream(
+                query=question, top_k=top_k, history=parsed_history
+            ):
+                event_type = event.pop("type", None) or "unknown"
+                # data 必须是合法 JSON 字符串（默认 str(dict) 会产生单引号，
+                # 前端 JSON.parse 会失败，导致 token 无法渲染）
+                yield {
+                    "event": event_type,
+                    "data": _json.dumps(event, ensure_ascii=False),
+                }
         except Exception as exc:
             logger.exception("Streaming query failed")
-            yield {"event": "error", "data": {"message": str(exc)}}
+            yield {"event": "error", "data": _json.dumps({"message": str(exc)})}
 
     return EventSourceResponse(event_generator())
 

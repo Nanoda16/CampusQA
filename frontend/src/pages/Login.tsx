@@ -39,17 +39,17 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-blue-50 via-indigo-50 to-purple-50 p-4">
+    <div className="min-h-screen flex items-center justify-center bg-brand-900 p-4">
       <Card
-        className="w-full max-w-md shadow-2xl rounded-2xl overflow-hidden"
-        styles={{ body: { padding: '32px' } }}
+        className="w-full max-w-md rounded-card overflow-hidden border border-brand-100"
+        styles={{ body: { padding: '40px 36px' } }}
       >
         <div className="text-center mb-8">
-          <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-bold mx-auto mb-4 shadow-lg">
+          <div className="w-14 h-14 rounded-xl bg-brand-700 flex items-center justify-center text-white text-xl font-semibold tracking-wide mx-auto mb-4">
             HHU
           </div>
-          <h1 className="text-2xl font-bold text-gray-800 mb-1">河海大学校园问答助手</h1>
-          <p className="text-gray-500 text-sm">基于 LLM + RAG 的智能问答系统</p>
+          <h1 className="text-xl font-semibold text-brand-900 mb-1">河海大学校园问答助手</h1>
+          <p className="text-slate-500 text-sm">基于 LLM + RAG 的智能问答系统</p>
         </div>
 
         <Tabs activeKey={activeTab} onChange={setActiveTab} centered>
@@ -74,7 +74,6 @@ export default function Login() {
                   loading={loading}
                   block
                   icon={<LoginOutlined />}
-                  className="bg-gradient-to-r from-blue-500 to-indigo-600"
                 >
                   登录
                 </Button>
@@ -108,7 +107,6 @@ export default function Login() {
                   htmlType="submit"
                   loading={loading}
                   block
-                  className="bg-gradient-to-r from-blue-500 to-indigo-600"
                 >
                   注册
                 </Button>
@@ -117,7 +115,7 @@ export default function Login() {
           </Tabs.TabPane>
         </Tabs>
 
-        <div className="mt-4 p-3 bg-gray-50 rounded-lg text-xs text-gray-500">
+        <div className="mt-4 p-3 bg-brand-50 border border-brand-100 rounded-lg text-xs text-slate-500">
           <p className="mb-1">测试账号：admin / admin123</p>
           <p>未注册可直接切换“注册”创建账号</p>
         </div>

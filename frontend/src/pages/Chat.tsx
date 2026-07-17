@@ -21,10 +21,11 @@ import {
   DislikeOutlined,
   RobotOutlined,
   UserOutlined,
-  FireOutlined, DownOutlined, PaperClipOutlined,
+  FireOutlined, DownOutlined, PaperClipOutlined, StopOutlined,
 } from '@ant-design/icons';
 import api from '../services/api';
 import SourceCards from '../components/SourceCards';
+import { streamChat, type SourceItem } from '../lib/sse';
 
 interface Message {
   id: number;
@@ -53,6 +54,7 @@ export default function Chat() {
   const [currentSession, setCurrentSession] = useState<string>('');
   const [hotQuestions, setHotQuestions] = useState<{ question: string; count: number }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
   const user = JSON.parse(localStorage.getItem('user') || 'null');
   const [isRagMode, setIsRagMode] = useState(true); // RAG 模式默认开启
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
@@ -119,24 +121,35 @@ export default function Chat() {
     setMessages([]);
   };
 
+  /** Build the last N conversation turns (excluding the just-added question)
+   *  to send as multi-turn context for follow-up reference resolution. */
+  const buildHistory = (msgs: Message[]): { role: string; content: string }[] =>
+    msgs
+      .filter((m) => m.content && m.content.trim())
+      .slice(-6) // last 3 Q&A pairs
+      .map((m) => ({ role: m.role === 'user' ? 'user' : 'ai', content: m.content }));
+
   const sendMessage = async () => {
-    if (!input.trim()) return;
+    if (!input.trim() || loading) return;
     const question = input.trim();
     setInput('');
 
     const sessionId = currentSession || generateSessionId();
     if (!currentSession) setCurrentSession(sessionId);
 
+    // Snapshot prior turns BEFORE appending the new question (for history context)
+    const priorHistory = buildHistory(messages);
+
     setMessages((prev) => [...prev, { id: Date.now(), role: 'user', content: question }]);
     setLoading(true);
 
     try {
       if (isRagMode) {
-        // Step 1: Create qa_record to persist conversation
+        // Step 1: Create qa_record to persist conversation (also handles cache)
         const askRes: any = await api.post(`/qa/ask?question=${encodeURIComponent(question)}&session_id=${sessionId}`);
         if (askRes.code === 200) {
           if (askRes.data.from_cache) {
-            // Cache hit — use cached answer directly
+            // Cache hit — use cached answer directly (no streaming needed)
             setMessages((prev) => [
               ...prev,
               {
@@ -146,36 +159,86 @@ export default function Chat() {
                 fromCache: true,
               },
             ]);
+            loadSessions();
+            loadHotQuestions();
           } else {
-            // Cache miss — call AI engine
+            // Cache miss — stream the answer token-by-token (typewriter)
             const recordId = askRes.data.id;
-            const aiRes: any = await api.post('/ai/query', { question, top_k: 5 });
-            const answer = aiRes.code === 200 ? (aiRes.data.answer || "未获取到回答") : "未获取到回答";
-            const sources = aiRes.code === 200 ? aiRes.data.sources : undefined;
-
-            // Step 2: Save answer to backend
-            await api.post('/qa/answer', {
-              record_id: recordId,
-              answer,
-              sources,
-              tokens_used: 0,
-              duration_ms: 0,
-            });
-
+            const aiMsgId = Date.now() + 1;
+            // Insert an empty AI message placeholder to fill as tokens arrive
             setMessages((prev) => [
               ...prev,
-              {
-                id: Date.now(),
-                role: 'ai',
-                content: answer,
-                sources,
-                isRAG: true,
-                recordId,
-              },
+              { id: aiMsgId, role: 'ai', content: '', isRAG: true, recordId },
             ]);
+
+            const controller = new AbortController();
+            abortRef.current = controller;
+            let acc = '';
+            let finalSources: SourceItem[] | undefined;
+
+            const appendToken = (content: string) => {
+              acc += content;
+              setMessages((prev) =>
+                prev.map((m) => (m.id === aiMsgId ? { ...m, content: acc } : m)),
+              );
+            };
+
+            try {
+              await streamChat(
+                '/api/ai/query/stream',
+                { question, top_k: 5, history: JSON.stringify(priorHistory) },
+                {
+                  onChunk: appendToken,
+                  onSources: (srcs) => {
+                    finalSources = srcs;
+                    setMessages((prev) =>
+                      prev.map((m) => (m.id === aiMsgId ? { ...m, sources: srcs } : m)),
+                    );
+                  },
+                  onDone: (result) => {
+                    // Prefer the accumulated stream; fall back to done payload
+                    const answer = acc || result.answer || '未获取到回答';
+                    const sources = finalSources ?? result.sources;
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === aiMsgId ? { ...m, content: answer, sources } : m,
+                      ),
+                    );
+                    // Persist the final answer to the backend record
+                    api
+                      .post('/qa/answer', {
+                        record_id: recordId,
+                        answer,
+                        sources,
+                        tokens_used: 0,
+                        duration_ms: 0,
+                      })
+                      .then(() => {
+                        loadSessions();
+                        loadHotQuestions();
+                      })
+                      .catch(() => {});
+                  },
+                  onError: (err) => {
+                    // Ignore user-initiated aborts; surface real errors
+                    if (controller.signal.aborted) return;
+                    setMessages((prev) =>
+                      prev.map((m) =>
+                        m.id === aiMsgId && !m.content
+                          ? { ...m, content: `回答失败：${err.message}` }
+                          : m,
+                      ),
+                    );
+                  },
+                },
+                { signal: controller.signal, maxRetries: 0 },
+              );
+            } catch {
+              /* aborted or fatal — already handled in onError */
+            } finally {
+              abortRef.current = null;
+            }
           }
-          loadSessions();
-          loadHotQuestions();
         }
       } else {
         const res: any = await api.post(`/qa/ask?question=${encodeURIComponent(question)}&session_id=${sessionId}`);
@@ -218,6 +281,13 @@ export default function Chat() {
     } finally {
       setLoading(false);
     }
+  };
+
+  /** Abort an in-flight streaming response (P2: stop generation). */
+  const stopGeneration = () => {
+    abortRef.current?.abort();
+    abortRef.current = null;
+    setLoading(false);
   };
 
   const toggleSources = (messageId: number) => {
@@ -263,7 +333,7 @@ export default function Chat() {
           icon={<PlusOutlined />}
           block
           onClick={createNewSession}
-          className="mb-4 bg-gradient-to-r from-blue-500 to-indigo-600"
+          className="mb-4"
         >
           新会话
         </Button>
@@ -278,7 +348,7 @@ export default function Chat() {
               renderItem={(s) => (
                 <List.Item
                   className={`cursor-pointer rounded-lg px-3 py-2 mb-1 transition-colors ${
-                    s.session_id === currentSession ? 'bg-blue-50' : 'hover:bg-gray-50'
+                    s.session_id === currentSession ? 'bg-brand-50 border border-brand-100' : 'hover:bg-slate-50 border border-transparent'
                   }`}
                   onClick={() => loadSessionMessages(s.session_id)}
                   actions={[
@@ -298,7 +368,10 @@ export default function Chat() {
                       {s.last_question || '新会话'}
                     </div>
                     <div className="text-xs text-gray-400">
-                      {s.question_count} 条消息 · {new Date(s.updated_at).toLocaleString()}
+                      {s.question_count} 条消息{(() => {
+                        const d = new Date(s.updated_at);
+                        return isNaN(d.getTime()) ? '' : ' · ' + d.toLocaleString();
+                      })()}
                     </div>
                   </div>
                 </List.Item>
@@ -320,7 +393,7 @@ export default function Chat() {
                 onClick={() => setInput(q.question)}
               >
                 {q.question}
-                <Badge count={q.count} style={{ backgroundColor: '#1890ff', marginLeft: 6 }} />
+                <Badge count={q.count} style={{ backgroundColor: '#1f4d8a', marginLeft: 6 }} />
               </div>
             ))}
           </div>
@@ -359,13 +432,13 @@ export default function Chat() {
               >
                 <Avatar
                   icon={m.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                  className={m.role === 'ai' ? 'bg-gradient-to-br from-blue-500 to-indigo-600' : 'bg-gray-300'}
+                  className={m.role === 'ai' ? 'bg-brand-700' : 'bg-slate-300'}
                 />
                 <div
-                  className={`max-w-[70%] rounded-2xl px-4 py-3 text-sm leading-relaxed ${
+                  className={`max-w-[70%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
                     m.role === 'user'
-                      ? 'bg-blue-500 text-white rounded-tr-none'
-                      : 'bg-white shadow-sm border border-gray-100 rounded-tl-none'
+                      ? 'bg-brand-600 text-white rounded-tr-sm'
+                      : 'bg-white border border-slate-200 rounded-tl-sm'
                   }`}
                 >
                   <div>{m.content}</div>
@@ -423,10 +496,10 @@ export default function Chat() {
               </div>
             ))
           )}
-          {loading && (
+          {loading && messages[messages.length - 1]?.role === 'user' && (
             <div className="flex gap-3">
-              <Avatar icon={<RobotOutlined />} className="bg-gradient-to-br from-blue-500 to-indigo-600" />
-              <div className="bg-white shadow-sm border border-gray-100 rounded-2xl rounded-tl-none px-4 py-3">
+              <Avatar icon={<RobotOutlined />} className="bg-brand-700" />
+              <div className="bg-white border border-slate-200 rounded-xl rounded-tl-sm px-4 py-3">
                 <Spin size="small" />
               </div>
             </div>
@@ -454,19 +527,22 @@ export default function Chat() {
               type={isRagMode ? 'primary' : 'default'}
               icon={<PaperClipOutlined />}
               onClick={() => setIsRagMode(!isRagMode)}
-              className={isRagMode ? 'bg-gradient-to-r from-green-500 to-teal-600 border-0 text-white' : ''}
             >
               {isRagMode ? 'RAG已开启' : 'RAG问答'}
             </Button>
-            <Button
-              type="primary"
-              icon={<SendOutlined />}
-              loading={loading}
-              onClick={sendMessage}
-              className="bg-gradient-to-r from-blue-500 to-indigo-600 h-auto"
-            >
-              发送
-            </Button>
+            {loading ? (
+              <Button danger icon={<StopOutlined />} onClick={stopGeneration}>
+                停止生成
+              </Button>
+            ) : (
+              <Button
+                type="primary"
+                icon={<SendOutlined />}
+                onClick={sendMessage}
+              >
+                发送
+              </Button>
+            )}
           </div>
         </div>
       </Card>

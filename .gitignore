@@ -70,3 +70,13 @@ front/dist/
 # Database
 *.db
 *.sqlite3
+
+# OMO / OpenCode project cache
+.sisyphus/
+.opencode/
+OpenCode.md
+
+# Backup
+*.bak
+frontend/dist.dist.bak/
+backend/data/

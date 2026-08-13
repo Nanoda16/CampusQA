@@ -251,7 +251,7 @@ npx vitest run
 
 > 技术栈说明：课程要求 Java/Spring Boot，本项目使用 Python/FastAPI，功能完全等价。
 >
-> 河海大学 · 信管一班第六组 · 易洋
+> 河海大学 · 信管一班第六组
 
 ---
 

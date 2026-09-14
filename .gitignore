@@ -80,3 +80,10 @@ OpenCode.md
 *.bak
 frontend/dist.dist.bak/
 backend/data/
+
+# 向量/检索索引（可再生产物，避免提交 ~10MB 二进制并被每次重建刷屏）
+# 首次使用请运行：python cli.py --rebuild
+ai_service/data/faiss.index
+ai_service/data/metadata.json
+ai_service/data/bm25/
+ai_service/data/artifacts/

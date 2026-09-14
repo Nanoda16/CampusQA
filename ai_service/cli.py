@@ -140,7 +140,6 @@ def _get_pipeline(
         pipeline.index_documents(chunk_size=chunk_size, chunk_overlap=overlap)
     return pipeline, top_k
 
-
 def _ensure_index(
     pipeline: RAGPipeline,
     chunk_size: int = 500,
@@ -156,10 +155,29 @@ def _ensure_index(
 # ---------------------------------------------------------------------------
 
 
+def _require_generator_or_exit(pipeline: RAGPipeline) -> None:
+    """Abort with a readable message when answer generation is impossible.
+
+    Generation modes (--ask / --test / interactive) need an LLM.  Index-only
+    modes (--index / --rebuild) do not, which is why the pipeline no longer
+    requires DEEPSEEK_API_KEY to be constructed.
+    """
+    if pipeline.has_generator():
+        return
+    print("❌ 未找到 DEEPSEEK_API_KEY，无法生成回答。")
+    print("   请在 ai_service/.env 或环境变量中设置后重试：")
+    print("     DEEPSEEK_API_KEY=sk-xxxxxxxx")
+    print("   仅构建索引不需要 API key：")
+    print("     python cli.py --index      构建索引")
+    print("     python cli.py --rebuild    强制重建索引")
+    sys.exit(1)
+
+
 def cmd_ask(question: str, chunk_size: int, overlap: int, top_k: int) -> None:
     """Single question mode: index → retrieve → generate → print."""
     pipeline, k = _get_pipeline(chunk_size, overlap, top_k)
     _ensure_index(pipeline, chunk_size, overlap)
+    _require_generator_or_exit(pipeline)
 
     print(f"\n问题：{question}")
     result = pipeline.run(query=question, top_k=k)
@@ -179,6 +197,7 @@ def cmd_test(chunk_size: int, overlap: int, top_k: int) -> None:
     if not _index_exists():
         print("📦 Index not found — building from scratch ...")
         pipeline.index_documents(chunk_size=chunk_size, chunk_overlap=overlap)
+    _require_generator_or_exit(pipeline)
 
     passed = 0
     total = len(TEST_QUESTIONS)
@@ -227,6 +246,7 @@ def cmd_interactive(chunk_size: int, overlap: int, top_k: int) -> None:
     if not _index_exists():
         print("📦 Index not found — building from scratch ...")
         pipeline.index_documents(chunk_size=chunk_size, chunk_overlap=overlap)
+    _require_generator_or_exit(pipeline)
 
     print("\n🔤 交互模式已启动。输入问题开始查询，输入 quit 退出，输入 rebuild 重建索引。\n")
 
@@ -246,7 +266,8 @@ def cmd_interactive(chunk_size: int, overlap: int, top_k: int) -> None:
 
         if q.lower() == "rebuild":
             print("🔄 正在重建索引 ...")
-            _delete_index()
+            # Do NOT delete first — index_documents() replaces the index. A
+            # failure mid-rebuild must never leave the project without one.
             pipeline.index_documents(chunk_size=chunk_size, chunk_overlap=overlap)
             print("✅ 索引重建完成\n")
             continue
@@ -263,9 +284,18 @@ def cmd_interactive(chunk_size: int, overlap: int, top_k: int) -> None:
 
 
 def cmd_rebuild(chunk_size: int, overlap: int) -> None:
-    """Force rebuild index: delete existing index and rebuild from scratch."""
+    """Force rebuild index from source documents.
+
+    NOTE: this used to call ``_delete_index()`` *before* constructing the
+    pipeline.  When construction failed (missing DEEPSEEK_API_KEY) the process
+    aborted having already deleted the index, leaving the project with no index
+    at all — which is exactly how ``data/faiss.index`` ended up containing a
+    single stray vector while ``knowledge_docs/`` held 340 documents.
+
+    ``index_documents()`` replaces the index wholesale, so deleting first is
+    unnecessary.  We no longer delete anything up front.
+    """
     print("🔄 强制重建索引 ...")
-    _delete_index()
     pipeline = RAGPipeline()
     result = pipeline.index_documents(chunk_size=chunk_size, chunk_overlap=overlap)
     print(f"✅ 索引重建完成：{result['chunks_count']} 个块，{result['docs_count']} 个文档")

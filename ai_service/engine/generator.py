@@ -49,6 +49,7 @@ class Generator:
         api_key: str | None = None,
         base_url: str | None = None,
         model: str | None = None,
+        required: bool = True,
     ):
         load_dotenv(_DOTENV_PATH)
 
@@ -57,13 +58,40 @@ class Generator:
         self.model = model or os.getenv("DEEPSEEK_MODEL", self.DEFAULT_MODEL)
 
         if not self.api_key:
-            logger.error("DEEPSEEK_API_KEY not found in environment or .env")
-            sys.exit(1)
+            if required:
+                # Raise instead of sys.exit(): a bare exit() kills the whole
+                # process mid-operation and cannot be caught by callers.  When
+                # this happened during `cli.py --rebuild` the index had already
+                # been deleted, so the process died leaving no index at all.
+                raise RuntimeError(
+                    "DEEPSEEK_API_KEY not found in environment or .env. "
+                    "Set it in .env or the environment before generating answers."
+                )
+            # Explicitly optional: indexing and retrieval do not need an LLM.
+            self._client = None
+            logger.info(
+                "Generator created without API key (required=False) — "
+                "generation will fail if called."
+            )
+            return
 
         self._client = OpenAI(api_key=self.api_key, base_url=self.base_url)
         logger.info(
             "Generator initialised (model=%s, base_url=%s)", self.model, self.base_url
         )
+
+    @property
+    def available(self) -> bool:
+        """True when an API client was successfully constructed."""
+        return getattr(self, "_client", None) is not None
+
+    def require(self) -> None:
+        """Raise if this generator cannot generate (no API key)."""
+        if not self.available:
+            raise RuntimeError(
+                "DEEPSEEK_API_KEY not found in environment or .env — "
+                "cannot generate answers. Retrieval and indexing still work."
+            )
 
     # ------------------------------------------------------------------
     # Public API

@@ -57,7 +57,12 @@ class RAGPipeline:
     ):
         self.vector_store = vector_store or VectorStore()
         self.retriever = retriever or Retriever(vector_store=self.vector_store)
-        self.generator = generator or Generator()
+        # The generator is built LAZILY.  Indexing and retrieval never need an
+        # LLM, so requiring DEEPSEEK_API_KEY at construction time made
+        # `cli.py --index` / `--rebuild` fail for no reason -- and because
+        # --rebuild deleted the index *before* constructing the pipeline, the
+        # project was left with no index at all.  See generator property below.
+        self._generator: Generator | None = generator
         self.bm25_retriever = bm25_retriever or BM25Retriever()
         # Pipeline state: populated by query methods for downstream fusion
         self._bm25_results: list[tuple[str, float]] = []
@@ -77,6 +82,31 @@ class RAGPipeline:
 
         # Auto-rebuild FAISS + BM25 from artifacts if the index is missing
         self._check_auto_rebuild()
+
+    # ------------------------------------------------------------------
+    # Generator access (lazy — indexing/retrieval must work without an LLM)
+    # ------------------------------------------------------------------
+
+    @property
+    def generator(self) -> Generator:
+        """Return the LLM generator, constructing it on first use.
+
+        Raises
+        ------
+        RuntimeError
+            When ``DEEPSEEK_API_KEY`` is absent.  Indexing and retrieval do not
+            touch this property, so they work without a key.
+        """
+        if self._generator is None:
+            self._generator = Generator()
+        return self._generator
+
+    def has_generator(self) -> bool:
+        """True when answer generation is possible (API key present)."""
+        try:
+            return self.generator.available
+        except RuntimeError:
+            return False
 
     # ------------------------------------------------------------------
     # Auto-rebuild on startup

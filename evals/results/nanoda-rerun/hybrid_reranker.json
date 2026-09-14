@@ -1,0 +1,973 @@
+{
+  "config": "hybrid+reranker",
+  "reranker_enabled": true,
+  "metrics": {
+    "total_cases": 50,
+    "answerable_cases": 40,
+    "ood_cases": 10,
+    "hit_at_5": 0.625,
+    "hit_at_5_detail": "25/40",
+    "mrr_at_5": 0.525,
+    "precision_at_5": 0.2917,
+    "recall_at_5": 0.625,
+    "ood_rejection_rate": 0.0,
+    "ood_rejection_detail": "0/10",
+    "citation_accuracy": null,
+    "avg_latency_s": 1.021,
+    "p95_latency_s": 1.21,
+    "vector_store_count": 2017,
+    "bm25_count": 2017
+  },
+  "per_case": [
+    {
+      "id": "q001",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学的校训是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学研究生院",
+        "河海大学",
+        "河海大学"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 3.069,
+      "error": null
+    },
+    {
+      "id": "q002",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学校训中「艰苦朴素」的含义是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "校园文化",
+        "河海大学",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.176,
+      "error": null
+    },
+    {
+      "id": "q003",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学校歌的名称是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "校园文化",
+        "校园文化",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.13,
+      "error": null
+    },
+    {
+      "id": "q004",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学校徽是什么形状的？",
+      "source_count": 3,
+      "top_titles": [
+        "校园文化",
+        "河海大学商学院",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.145,
+      "error": null
+    },
+    {
+      "id": "q005",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学校徽中的蓝色系叫什么名字？",
+      "source_count": 3,
+      "top_titles": [
+        "校园文化",
+        "河海大学地球科学与工程学院",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.199,
+      "error": null
+    },
+    {
+      "id": "q006",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学是哪一年创办的？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学商学院",
+        "河海大学商学院",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 1.0,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.979,
+      "error": null
+    },
+    {
+      "id": "q007",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学的创办人是谁？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学商学院",
+        "河海大学商学院",
+        "郑金海"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.888,
+      "error": null
+    },
+    {
+      "id": "q008",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学的前身是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "校园文化",
+        "河海大学",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.149,
+      "error": null
+    },
+    {
+      "id": "q009",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学现任校长是谁？",
+      "source_count": 3,
+      "top_titles": [
+        "陈　达",
+        "郑金海",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 0.3333333333333333,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.875,
+      "error": null
+    },
+    {
+      "id": "q010",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学现任党委书记是谁？",
+      "source_count": 3,
+      "top_titles": [
+        "孟　新",
+        "陆国宾",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 0.3333333333333333,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.775,
+      "error": null
+    },
+    {
+      "id": "q011",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学的校庆日是哪一天？",
+      "source_count": 3,
+      "top_titles": [
+        "关于2026年博士研究生申请审核制（第二批）招生外语水平考核和综合考核确认的通知",
+        "通知公告",
+        "校园文化"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.178,
+      "error": null
+    },
+    {
+      "id": "q012",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学有几个校区？分别在哪些城市？",
+      "source_count": 3,
+      "top_titles": [
+        "校园文化",
+        "法学院",
+        "河海大学"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.145,
+      "error": null
+    },
+    {
+      "id": "q013",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学西康路校区的地址是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "院系设置",
+        "省部级",
+        "国家级"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.659,
+      "error": null
+    },
+    {
+      "id": "q014",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学常州校区的地址是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "党政职能部门",
+        "直属单位",
+        "派出机构"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.799,
+      "error": null
+    },
+    {
+      "id": "q015",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学新疆研究院是哪一年揭牌成立的？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学",
+        "河海大学新疆研究院揭牌成立",
+        "河海大学新疆研究院揭牌成立"
+      ],
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.953,
+      "error": null
+    },
+    {
+      "id": "q016",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学新疆研究院依托哪些优势学科？",
+      "source_count": 3,
+      "top_titles": [
+        "新疆理工学院党委书记丁建丽一行来我校调研",
+        "河海大学新疆研究院揭牌成立",
+        "河海大学新疆研究院揭牌成立"
+      ],
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.981,
+      "error": null
+    },
+    {
+      "id": "q017",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "2025年度国家科学技术奖河海大学共有几项成果获奖？",
+      "source_count": 3,
+      "top_titles": [
+        "我校4项成果荣获国家科学技术奖",
+        "科技处",
+        "科技处"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.808,
+      "error": null
+    },
+    {
+      "id": "q018",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "董增川教授团队牵头的获奖项目名称是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "港航院“五位一体”工作体系驱动内涵式发展",
+        "我校多项党建工作再创佳绩",
+        "河海大学举行2026届毕业生代表座谈会"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.022,
+      "error": null
+    },
+    {
+      "id": "q019",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学获批了什么本科新专业？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学获批储能科学与工程本科新专业",
+        "河海大学环境学院",
+        "河海大学地球科学与工程学院"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.017,
+      "error": null
+    },
+    {
+      "id": "q020",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "储能科学与工程专业依托哪个学院？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学获批储能科学与工程本科新专业",
+        "河海大学新能源学院诚聘海内外优秀人才",
+        "院系设置"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.044,
+      "error": null
+    },
+    {
+      "id": "q021",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "AI for Water学术联盟有多少家初始成员？",
+      "source_count": 3,
+      "top_titles": [
+        "AI for Water学术联盟成立大会暨首届国际学术研讨会在南京召开",
+        "AI for Water学术联盟成立大会暨首届国际学术研讨会在南京召开",
+        "AI for Water学术联盟成立大会暨首届国际学术研讨会在南京召开"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.923,
+      "error": null
+    },
+    {
+      "id": "q022",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "AI for Water学术联盟的理事长单位是哪所大学？",
+      "source_count": 3,
+      "top_titles": [
+        "AI for Water学术联盟成立大会暨首届国际学术研讨会在南京召开",
+        "AI for Water学术联盟成立大会暨首届国际学术研讨会在南京召开",
+        "AI for Water学术联盟成立大会暨首届国际学术研讨会在南京召开"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.929,
+      "error": null
+    },
+    {
+      "id": "q023",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学在第十五届「挑战杯」江苏省赛中获得多少个特等奖？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学获“挑战杯”江苏省特等奖4项、一等奖4项",
+        "河海大学获“挑战杯”江苏省特等奖4项、一等奖4项",
+        "河海大学教师在第五届全国高校教师教学创新大赛中获佳绩"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.115,
+      "error": null
+    },
+    {
+      "id": "q024",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "2026年4月河海大学代表团出访了哪个国家？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学代表团出访挪威",
+        "校党委书记杨桂山率团访问新加坡和马来西亚",
+        "河海大学举行2026届毕业生代表座谈会"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.072,
+      "error": null
+    },
+    {
+      "id": "q025",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "魏长赟教授获得了英国ICE学会的什么奖项？",
+      "source_count": 3,
+      "top_titles": [
+        "学位点建设风采 | 船舶与海洋工程：魏长赟教授获英国ICE学会哈尔克罗爵士奖",
+        "学位点建设风采 | 船舶与海洋工程：魏长赟教授获英国ICE学会哈尔克罗爵士奖",
+        "我校魏长赟教授荣获英国ICE学会年度哈尔克罗爵士奖"
+      ],
+      "hit": true,
+      "rr": 0.3333333333333333,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.878,
+      "error": null
+    },
+    {
+      "id": "q026",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "张建云院士荣获了第十六届什么奖项？",
+      "source_count": 3,
+      "top_titles": [
+        "张建云院士荣获第十六届光华工程科技奖",
+        "河海大学",
+        "我校科研团队在沿江化工产业转型与长江大保护研究领域取得新进展"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.093,
+      "error": null
+    },
+    {
+      "id": "q027",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "我校陈永辉教授在2026年荣获了什么省级荣誉称号？",
+      "source_count": 3,
+      "top_titles": [
+        "我校陈永辉教授荣获2026年江苏省先进工作者荣誉称号",
+        "河海大学举行2026年研究生毕业典礼暨学位授予仪式",
+        "给学生心灵埋下真善美的种子——河海大学五年来开好思政课纪实"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.16,
+      "error": null
+    },
+    {
+      "id": "q028",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "徐芝纶教育基金是哪一年设立的？",
+      "source_count": 3,
+      "top_titles": [
+        "徐芝纶教育基金",
+        "严恺教育科技基金",
+        "通知公告"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.9,
+      "error": null
+    },
+    {
+      "id": "q029",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学西康路校区医疗服务电话是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "社会科学处",
+        "关于2026年博士研究生申请审核制（第二批）招生外语水平考核和综合考核确认的通知",
+        "资产处"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.051,
+      "error": null
+    },
+    {
+      "id": "q030",
+      "group": "single_turn",
+      "answerable": true,
+      "question": "河海大学2026届本科生毕业典礼上郑金海校长演讲的题目是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学举行2026届本科生毕业典礼",
+        "河海大学举行2026届本科生毕业典礼",
+        "河海大学举行2026年研究生毕业典礼暨学位授予仪式"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.21,
+      "error": null
+    },
+    {
+      "id": "mt001",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "这个研究院主要聚焦什么方向？",
+      "source_count": 3,
+      "top_titles": [
+        "江苏省科技体制改革思想库",
+        "河海大学召开2026年度工作会议",
+        "土木院推动党建业务融合促进高质量发展"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.981,
+      "error": null
+    },
+    {
+      "id": "mt002",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "土木与交通学院陈永辉教授团队的获奖成果是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "我校4项成果荣获国家科学技术奖",
+        "我校陈永辉教授荣获2026年江苏省先进工作者荣誉称号",
+        "茅以升科技教育基金会理事长茅为中一行来访"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.172,
+      "error": null
+    },
+    {
+      "id": "mt003",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "江宁校区的地址是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "院系设置",
+        "国家级",
+        "省部级"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.403,
+      "error": null
+    },
+    {
+      "id": "mt004",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "代表团访问了挪威哪两所大学？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学代表团出访挪威",
+        "河海大学代表团出访挪威",
+        "校党委书记杨桂山率团访问新加坡和马来西亚"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.876,
+      "error": null
+    },
+    {
+      "id": "mt005",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "这个联盟有多少家初始成员？其中理事长单位是哪所大学？",
+      "source_count": 3,
+      "top_titles": [
+        "AI for Water学术联盟成立大会暨首届国际学术研讨会在南京召开",
+        "河海大学",
+        "河海大学欧美同学会（河海大学留学人员联谊会） 第二次会员代表大会顺利召开"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.939,
+      "error": null
+    },
+    {
+      "id": "mt006",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "获得特等奖的「深海哨兵」项目是哪个学院推报的？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学获“挑战杯”江苏省特等奖4项、一等奖4项",
+        "河海大学党委学生工作部、学生工作处、人武部",
+        "河海大学党委学生工作部、学生工作处、人武部"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.125,
+      "error": null
+    },
+    {
+      "id": "mt007",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "校徽中间的图案是什么字体的什么字？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学地球科学与工程学院",
+        "校园文化",
+        "校园文化"
+      ],
+      "hit": true,
+      "rr": 0.5,
+      "precision": 0.6666666666666666,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 1.161,
+      "error": null
+    },
+    {
+      "id": "mt008",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "毕业典礼上郑金海校长的演讲主题是什么？他提出了哪三点希望？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学举行2026年研究生毕业典礼暨学位授予仪式",
+        "河海大学举行2026年研究生毕业典礼暨学位授予仪式",
+        "河海大学举行2026年研究生毕业典礼暨学位授予仪式"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.248,
+      "error": null
+    },
+    {
+      "id": "mt009",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "徐芝纶教育基金是哪一年设立的？",
+      "source_count": 3,
+      "top_titles": [
+        "徐芝纶教育基金",
+        "严恺教育科技基金",
+        "通知公告"
+      ],
+      "hit": true,
+      "rr": 1.0,
+      "precision": 0.3333333333333333,
+      "recall": 1.0,
+      "ood_rejected": false,
+      "latency_s": 0.923,
+      "error": null
+    },
+    {
+      "id": "mt010",
+      "group": "multi_turn",
+      "answerable": true,
+      "question": "加上这个新专业，河海大学目前本科专业总数是多少？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学商学院",
+        "河海大学地球科学与工程学院",
+        "河海大学"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.908,
+      "error": null
+    },
+    {
+      "id": "ood001",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学今年在江苏的录取分数线是多少？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学研究生院",
+        "河海大学",
+        "河海大学"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.642,
+      "error": null
+    },
+    {
+      "id": "ood002",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学附近有什么好吃的餐馆推荐？",
+      "source_count": 3,
+      "top_titles": [
+        "常用电话",
+        "河海大学",
+        "河海大学"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.001,
+      "error": null
+    },
+    {
+      "id": "ood003",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学宿舍是几人间？有没有空调和独立卫生间？",
+      "source_count": 3,
+      "top_titles": [
+        "常用电话",
+        "关于2026年博士研究生申请审核制（第二批）招生外语水平考核和综合考核确认的通知",
+        "河海大学研究生院"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.047,
+      "error": null
+    },
+    {
+      "id": "ood004",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学研究生学费一年多少钱？",
+      "source_count": 3,
+      "top_titles": [
+        "关于2026年博士研究生申请审核制（第二批）招生外语水平考核和综合考核确认的通知",
+        "河海大学2024年硕士研究生招生简章",
+        "河海大学商学院"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.857,
+      "error": null
+    },
+    {
+      "id": "ood005",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学有哪些学生社团？怎么加入？",
+      "source_count": 3,
+      "top_titles": [
+        "【中国青年报】青春接力 河海奔腾",
+        "河海大学商学院",
+        "河海大学研究生院"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.079,
+      "error": null
+    },
+    {
+      "id": "ood006",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学毕业生的平均就业率和薪资是多少？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学商学院",
+        "关于2026年博士研究生申请审核制（第二批）招生外语水平考核和综合考核确认的通知",
+        "河海大学研究生院"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.825,
+      "error": null
+    },
+    {
+      "id": "ood007",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学有没有游泳馆？开放时间是什么时候？",
+      "source_count": 3,
+      "top_titles": [
+        "通知公告",
+        "河海大学启动2026“锦绣江苏”国际暑期学校",
+        "河海大学浅水湖泊综合治理与资源开发教育部重点实验室2023年度开放研究基金指南"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.919,
+      "error": null
+    },
+    {
+      "id": "ood008",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学在2026年武书连大学排名中排第几？",
+      "source_count": 3,
+      "top_titles": [
+        "通知公告",
+        "通知公告",
+        "关于2026年博士研究生申请审核制（第二批）招生外语水平考核和综合考核确认的通知"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.477,
+      "error": null
+    },
+    {
+      "id": "ood009",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学的奖学金具体有哪些类别？金额分别是多少？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学党委学生工作部、学生工作处、人武部",
+        "校园文化",
+        "河海大学"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 1.172,
+      "error": null
+    },
+    {
+      "id": "ood010",
+      "group": "ood",
+      "answerable": false,
+      "question": "河海大学转专业的具体条件和流程是什么？",
+      "source_count": 3,
+      "top_titles": [
+        "河海大学经济与金融学院人才招聘公告",
+        "河海大学获批储能科学与工程本科新专业",
+        "河海大学期刊部"
+      ],
+      "hit": false,
+      "rr": 0.0,
+      "precision": 0.0,
+      "recall": 0.0,
+      "ood_rejected": false,
+      "latency_s": 0.983,
+      "error": null
+    }
+  ]
+}

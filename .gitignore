@@ -40,10 +40,13 @@ CLAUDE.md
 .github/copilot-instructions.md
 
 # AI 模型文件
+# 注意：这里必须写成 /models/（带前导斜杠，只匹配仓库根目录）。
+# 写成无锚点的 models/ 会匹配任意层级的同名目录，曾把
+# backend/app/models/（ORM 模型包）一起忽略掉，导致该包从未被提交。
 *.bin
 *.gguf
 *.safetensors
-models/
+/models/
 ollama_data/
 
 # ChromaDB 数据

@@ -91,6 +91,9 @@ class RAGPipeline:
     def generator(self) -> Generator:
         """Return the LLM generator, constructing it on first use.
 
+        The generator is built lazily so that indexing and retrieval work
+        without ``DEEPSEEK_API_KEY`` (see ``__init__``).
+
         Raises
         ------
         RuntimeError
@@ -100,6 +103,17 @@ class RAGPipeline:
         if self._generator is None:
             self._generator = Generator()
         return self._generator
+
+    @generator.setter
+    def generator(self, value: Generator | None) -> None:
+        """Allow injecting/replacing the generator after construction.
+
+        Needed because this used to be a plain instance attribute
+        (``self.generator = ...``).  Making it a read-only property broke
+        every test that stubs it with ``pipeline.generator = MagicMock()``
+        (``backend/tests/test_artifact.py``, ``backend/tests/test_rejection.py``).
+        """
+        self._generator = value
 
     def has_generator(self) -> bool:
         """True when answer generation is possible (API key present)."""

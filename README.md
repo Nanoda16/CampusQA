@@ -2,7 +2,7 @@
 
 > 上传文档、构建知识库、用 AI 提问。适用于任何领域的私有知识问答。
 
-基于 **RAG（检索增强生成）** 构建的通用文档问答系统。内置 340 篇校园文档作为示例知识库，可替换为任意领域文档（企业制度、产品手册、课程资料等）。
+基于 **RAG（检索增强生成）** 构建的通用文档问答系统。知识库内容完全由你自己注入：既可以上传文档，也可以把一批文件放进知识目录，系统只认那个目录。
 
 ---
 
@@ -45,24 +45,66 @@
 
 ---
 
-## 示例知识库
+## 知识库：一个目录就是全部真相
 
-`knowledge_docs/` 包含 340 篇相关知识文档：
+系统的可检索内容只来自一个目录，默认是仓库根目录下的 `knowledge_docs/`：
 
-| 文件夹 | 内容 | 文档数 |
-|--------|------|--------|
-| `news/` | 学校新闻、学术动态、通知公告 | 198 |
-| `academic/` | 教务处通知、研究生院、课程安排 | 57 |
-| `university_info/` | 学校概况、院系设置、校园文化 | 17 |
-| `academic_files/` | 课程清单、校历、使用指南 | 16 |
-| `departments/` | 各学院简介、师资队伍 | 14 |
-| `admin/` | 职能部门信息 | 13 |
-| `alumni/` | 校友会、教育发展基金会 | 12 |
-| `third_party/` | 百度百科、维基百科、教育部等 | 11 |
-| `research/` | 科研平台信息 | 1 |
-| `campus_life/` | 校园生活 | 1 |
+```
+knowledge_docs/                 ← 唯一真相：所有可检索内容都以纯文本躺在这里
+├── 院系介绍/                   ← 子目录名就是文档分类
+│   └── 计算机学院_1f57a249.md
+└── uploads/                   ← 界面上的上传也会落到这里
+    └── 校历说明_8b3c1d02.md
+```
 
-> 💡 替换为自己的文档：清空 `knowledge_docs/`，放入你的 `.txt` / `.md` 文件，运行 `/reindex` 即可。
+规则很简单：
+
+- 只认 `.md` 和 `.txt`。上传的 PDF/Word 会先被解析成纯文本写成 `.md` 再入库，所以这个目录永远是人类可读、可 diff 的。
+- 子目录名 = 文档分类，可以自己建任意分类。
+- `# 标题` 是文档标题，`> 来源:` 是来源链接。
+- 重建索引 = 重新扫这个目录，所以「往目录里放文件」和「界面上传」两条路的结果完全等价。
+
+想换成你自己的资料，两种做法：
+
+```bash
+# 方式一：直接把文件放进目录
+cp -r 我的资料/* knowledge_docs/
+
+# 方式二：让它指向别的目录（绝对路径，或相对仓库根目录）
+export KNOWLEDGE_DIR=D:/我的资料
+```
+
+然后点界面上的「重建索引」（或在 ai_service 上调 `GET /reindex`）。
+
+### 示例语料（可选）
+
+仓库本身不带语料，开箱是空知识库。如果需要一套现成的中文校园语料用来试跑，下载 Releases 里的 **`knowledge_docs-seed.zip`**，解压到 `knowledge_docs/` 再重建索引即可：
+
+```
+knowledge_docs-seed.zip
+├── news/            学校新闻、学术动态、通知公告
+├── academic/        教务处通知、研究生院、课程安排
+├── university_info/ 学校概况、院系设置、校园文化
+├── academic_files/  课程清单、校历、使用指南
+├── departments/     各学院简介、师资队伍
+├── admin/           职能部门信息
+├── alumni/          校友会、教育发展基金会
+├── third_party/     百度百科、维基百科、教育部等
+├── research/        科研平台信息
+└── campus_life/     校园生活
+```
+
+### 派生数据放哪
+
+向量和索引都是可再生的派生物，不进 git：
+
+```
+ai_service/data/faiss.index     向量（每个切片 512 维）
+ai_service/data/metadata.json   切片原文 + 标题/分类/来源（检索时靠它还原文本）
+ai_service/data/bm25/           关键词索引
+```
+
+这两样必须成对存在：FAISS 只返回「第几条最像」，正文是从 `metadata.json` 同下标取出来的。删掉了重新「重建索引」即可。也可以用 `AI_DATA_DIR` 把它们放到别的盘。
 
 ---
 
@@ -87,22 +129,25 @@
 ## 项目结构
 
 ```
+├── knowledge_docs/           # 知识库唯一真相：放 .md/.txt，子目录名即分类
+│
 ├── ai_service/               # AI 微服务 (port 8003)
 │   ├── main.py               # FastAPI 入口
 │   ├── config.py             # 配置中心
 │   ├── engine/
-│   │   ├── pipeline.py       # RAG 管线编排
+│   │   ├── pipeline.py       # RAG 管线编排 + 索引构建
+│   │   ├── loader.py         # 知识目录扫描 / 文件解析 / 上传落盘
 │   │   ├── retriever.py      # FAISS 稠密检索 + 低置信检测
 │   │   ├── embedding.py      # BGE 嵌入模型
 │   │   ├── chunker.py        # 文档切片
-│   │   ├── loader.py         # 知识文档加载
 │   │   ├── vector_store.py   # FAISS 索引管理
-│   │   ├── bm25_retriever.py # BM25 关键词检索
-│   │   ├── fusion.py         # RRF 融合
-│   │   ├── reranker.py       # Cross-Encoder 重排
+│   │   ├── bm25_retriever.py # BM25 关键词检索（稠密 + 稀疏混合）
+│   │   ├── fusion.py         # RRF 倒数排名融合
+│   │   ├── reranker.py       # Cross-Encoder 重排（默认关闭）
 │   │   ├── citation.py       # 引用后校验
 │   │   ├── generator.py      # LLM API 客户端
 │   │   └── prompts.py        # Prompt 模板
+│   ├── data/                 # 派生的索引产物（不进 git，可再生）
 │   └── cli.py                # 命令行工具
 │
 ├── backend/                  # 业务后端 (port 8002)
@@ -113,11 +158,12 @@
 │   │   ├── redis_client.py   # Redis（降级 fakeredis）
 │   │   ├── models/           # ORM 模型
 │   │   ├── schemas/          # Pydantic 模型
-│   │   ├── services/         # 业务逻辑
+│   │   ├── services/         # 业务逻辑（入库 / 重建对齐）
 │   │   ├── routers/          # API 路由
 │   │   └── cache/            # Redis 缓存层
 │   ├── alembic/              # 数据库迁移
-│   ├── tests/                # pytest 测试（194 个）
+│   ├── uploads/              # 上传暂存（转成文本后即清理，不进 git）
+│   ├── tests/                # pytest 测试
 │   └── init_db.sql           # 建库脚本
 │
 ├── frontend/                 # React 前端 (port 5173)
@@ -181,9 +227,11 @@ npm run dev
 ### 5. 构建知识库
 
 1. 注册账号 → 登录
-2. 进入「知识库文档」→ 上传文档或使用 `knowledge_docs/` 中的示例
-3. 点击「重建索引」
+2. 进入「知识库文档」→ 上传文档，或者把文件直接放进 `knowledge_docs/`
+3. 点击「重建索引」（会把知识目录里的全部内容重新入库，并把文档列表对齐到磁盘）
 4. 进入「智能问答」→ 开始提问
+
+上传和放文件这两条路是等价的：上传的文件也会被写进 `knowledge_docs/`，所以下一次重建索引它们照样在。
 
 ---
 
@@ -209,10 +257,10 @@ npx vitest run
 |------|------|------|
 | POST | `/query` | 同步 RAG 问答 |
 | GET  | `/query/stream` | SSE 流式问答 |
-| POST | `/rebuild` | 清空并重建全部索引 |
-| GET  | `/reindex` | 从 knowledge_docs/ 全量重建 |
-| POST | `/process` | 处理单篇文档文件 |
-| DELETE | `/document/{id}` | 删除文档向量 |
+| GET  | `/reindex` | 扫描知识目录全量重建（返回文档清单） |
+| POST | `/process` | 处理单篇文档：`persist=true` 会先把文本写进知识目录再入库 |
+| DELETE | `/document/{id}` | 删除文档：索引 + 知识目录里的文件（`?delete_file=false` 只删索引） |
+| POST | `/rebuild` | 【已废弃】从数据库行重建，改用 `/reindex` |
 | GET  | `/stats` | 知识库统计 |
 | GET  | `/health` | 健康检查 |
 

@@ -3,6 +3,7 @@
 import os
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import httpx
 from sqlalchemy.orm import Session
@@ -13,6 +14,9 @@ from app.schemas.document import DocumentCreate, DocumentUpdate
 
 # ai_service 基础 URL（与 RAGService 保持一致）
 AI_SERVICE_URL = "http://localhost:8003"
+
+# 上传暂存目录：解析并写入知识目录后即可清理，它不参与索引
+UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 
 class DocumentService:
@@ -125,6 +129,68 @@ class DocumentService:
         )
         return [r[0] for r in results if r[0]]
 
+    @staticmethod
+    def sync_from_manifest(db: Session, manifest: list[dict]) -> dict:
+        """把 ``kb_document`` 对齐到知识目录扫描出来的清单。
+
+        知识目录是唯一真相：重建索引时 ai_service 返回它实际索引了哪些文件，
+        这里据此增删改数据库记录，避免出现“数据库里有但索引里没有”或者反过来的
+        情况（这正是原先两个重建入口互相清空内容的根因）。
+        """
+        existing = {
+            doc.vector_doc_id: doc
+            for doc in db.query(Document)
+            .filter(Document.vector_doc_id.isnot(None))
+            .all()
+        }
+
+        seen: set[str] = set()
+        created = 0
+        updated = 0
+
+        for item in manifest:
+            vector_doc_id = item.get("doc_id")
+            if not vector_doc_id:
+                continue
+            seen.add(vector_doc_id)
+
+            file_path = item.get("file_path") or ""
+            file_type = os.path.splitext(file_path)[1].lstrip(".").lower() or None
+
+            row = existing.get(vector_doc_id)
+            if row is None:
+                row = Document(
+                    title=item.get("title") or vector_doc_id,
+                    category=item.get("category") or None,
+                    file_type=file_type,
+                    file_path=file_path or None,
+                    vector_doc_id=vector_doc_id,
+                    source_url=item.get("source_url") or None,
+                    chunk_count=int(item.get("chunk_count") or 0),
+                    status=DocumentStatus.READY,
+                )
+                db.add(row)
+                created += 1
+                continue
+
+            row.title = item.get("title") or row.title
+            row.category = item.get("category") or row.category
+            row.file_path = file_path or row.file_path
+            row.source_url = item.get("source_url") or row.source_url
+            row.chunk_count = int(item.get("chunk_count") or row.chunk_count or 0)
+            row.status = DocumentStatus.READY
+            row.error_message = None
+            updated += 1
+
+        deleted = 0
+        for vector_doc_id, row in existing.items():
+            if vector_doc_id not in seen:
+                db.delete(row)
+                deleted += 1
+
+        db.commit()
+        return {"created": created, "updated": updated, "deleted": deleted}
+
 
 class IngestionService:
     """异步文档入库服务
@@ -178,8 +244,8 @@ class IngestionService:
         """后台工作：处理单篇文档
 
         1. 用独立 session 读取文档
-        2. 写入临时文件并调用 ai_service /process
-        3. 根据结果更新状态
+        2. 交给 ai_service 解析 → 写入知识目录 → 建索引
+        3. 回写 chunk_count / vector_doc_id / 知识目录里的文件路径
         """
         db = self._session_factory()
         try:
@@ -187,11 +253,32 @@ class IngestionService:
             if doc is None:
                 return
 
+            staging_path = doc.file_path
             result = self._call_process_api(doc)
 
             doc.status = DocumentStatus.READY
             doc.chunk_count = result.get("chunks_count", 0)
+            doc.vector_doc_id = result.get("doc_id") or doc.vector_doc_id
+
+            persisted_path = result.get("persisted_path") or result.get("file_path")
+            if persisted_path:
+                doc.file_path = persisted_path
+            if result.get("title") and not doc.title:
+                doc.title = result["title"]
+            if result.get("category") and not doc.category:
+                doc.category = result["category"]
+            if result.get("source_url") and not doc.source_url:
+                doc.source_url = result["source_url"]
+            if not doc.file_type and persisted_path:
+                doc.file_type = (
+                    os.path.splitext(persisted_path)[1].lstrip(".").lower() or None
+                )
+            doc.error_message = None
             db.commit()
+
+            # 知识目录里已经有规范化的副本了，暂存文件不再需要，
+            # 否则 uploads/ 会随着每次上传无限增长。
+            self._cleanup_staging(staging_path, persisted_path)
         except Exception as exc:
             try:
                 doc = db.get(Document, document_id)
@@ -204,40 +291,73 @@ class IngestionService:
         finally:
             db.close()
 
+    @staticmethod
+    def _cleanup_staging(staging_path: str | None, persisted_path: str | None) -> None:
+        """删除已成功转换的上传暂存文件。"""
+        if not staging_path or not persisted_path:
+            return
+        try:
+            if os.path.abspath(staging_path) == os.path.abspath(persisted_path):
+                return
+            if not str(Path(staging_path).resolve()).startswith(str(UPLOAD_DIR.resolve())):
+                return
+            os.unlink(staging_path)
+        except OSError:
+            pass
+
     def _call_process_api(self, doc: Document) -> dict:
         """向 ai_service 提交文档处理
 
-        如果文档有关联的真实文件（file_path 指向存在的文件），
-        直接将文件路径发给 AI 服务；否则写临时 .md 文件回退。
+        首次入库（还没有 vector_doc_id）用 ``persist=True``：ai_service 会把解析出的
+        纯文本写进知识目录再建索引，这样以后一次全量重建（扫目录）仍然找得到它。
+
+        重新处理用 ``persist=False``：文件已经在知识目录里，原地重建索引即可，
+        否则每点一次“重新处理”都会在目录里多出一个副本。
         """
+        already_in_knowledge_dir = bool(doc.vector_doc_id) and bool(doc.file_path) and os.path.isfile(doc.file_path)
+
         # ── 优先使用已上传的真实文件 ──────────────────────────
         if doc.file_path and os.path.isfile(doc.file_path):
-            resp = httpx.post(
-                f"{AI_SERVICE_URL}/process",
-                json={"file_path": doc.file_path, "doc_id": str(doc.id)},
-                timeout=120.0,
+            return self._post_process(
+                file_path=doc.file_path,
+                persist=not already_in_knowledge_dir,
+                category=doc.category,
             )
-            resp.raise_for_status()
-            return resp.json()
 
         # ── 回退：从 title + content 写临时 .md ───────────────
         fd, path = tempfile.mkstemp(suffix=".md", prefix=f"doc_{doc.id}_")
         try:
             with os.fdopen(fd, "w", encoding="utf-8") as f:
                 f.write(f"# {doc.title}\n\n{doc.content or ''}")
-
-            resp = httpx.post(
-                f"{AI_SERVICE_URL}/process",
-                json={"file_path": path, "doc_id": str(doc.id)},
-                timeout=120.0,
+            return self._post_process(
+                file_path=path,
+                persist=True,
+                category=doc.category,
             )
-            resp.raise_for_status()
-            return resp.json()
         finally:
             try:
                 os.unlink(path)
             except OSError:
                 pass
+
+    @staticmethod
+    def _post_process(
+        file_path: str,
+        persist: bool,
+        category: str | None,
+    ) -> dict:
+        """调用 ai_service /process 并返回结果。"""
+        resp = httpx.post(
+            f"{AI_SERVICE_URL}/process",
+            json={
+                "file_path": file_path,
+                "persist": persist,
+                "category": category,
+            },
+            timeout=300.0,
+        )
+        resp.raise_for_status()
+        return resp.json()
 
     # ── 启动恢复 ──────────────────────────────────────────
 

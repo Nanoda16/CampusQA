@@ -65,10 +65,84 @@ class BM25Retriever:
 
         self._chunk_ids = list(chunk_ids)
         self._tokenized_corpus = [self._tokenize(doc) for doc in corpus]
+        self._recompute()
 
+    def add_documents(self, corpus: list[str], chunk_ids: list[str]) -> None:
+        """Append documents to the BM25 index.
+
+        BM25 is a collection-level statistic — the IDF term depends on the
+        whole corpus — so appending requires recomputing it.  The cached
+        tokenizations are reused, which means only the newly added texts are
+        segmented again by jieba.
+
+        Chunk ids that already exist are dropped first, so re-processing a
+        document replaces its previous chunks instead of duplicating them.
+
+        Parameters
+        ----------
+        corpus : list[str]
+            Raw texts of the new chunks.
+        chunk_ids : list[str]
+            Parallel list of chunk identifiers, one per text.
+
+        Raises
+        ------
+        ValueError
+            If *corpus* and *chunk_ids* have different lengths.
+        """
+        if len(corpus) != len(chunk_ids):
+            raise ValueError(
+                f"corpus ({len(corpus)}) and chunk_ids ({len(chunk_ids)}) "
+                "must have the same length"
+            )
+        if not corpus:
+            return
+
+        duplicates = set(chunk_ids) & set(self._chunk_ids)
+        if duplicates:
+            self._drop(duplicates)
+
+        self._chunk_ids.extend(chunk_ids)
+        self._tokenized_corpus.extend(self._tokenize(text) for text in corpus)
+        self._recompute()
+
+    def remove_documents(self, chunk_ids: list[str] | set[str]) -> int:
+        """Drop documents from the BM25 index.
+
+        Parameters
+        ----------
+        chunk_ids : list[str] | set[str]
+            Chunk identifiers to remove.
+
+        Returns
+        -------
+        int
+            Number of indexed chunks that were actually removed.
+        """
+        return self._drop(set(chunk_ids))
+
+    def _drop(self, chunk_ids: set[str]) -> int:
+        """Remove *chunk_ids* from the inverted corpus and refresh BM25."""
+        if not chunk_ids:
+            return 0
+
+        kept = [
+            (cid, tokens)
+            for cid, tokens in zip(self._chunk_ids, self._tokenized_corpus)
+            if cid not in chunk_ids
+        ]
+        removed = len(self._chunk_ids) - len(kept)
+        if removed:
+            self._chunk_ids = [cid for cid, _ in kept]
+            self._tokenized_corpus = [tokens for _, tokens in kept]
+            self._recompute()
+        return removed
+
+    def _recompute(self) -> None:
+        """Rebuild ``BM25Okapi`` statistics from the cached tokenizations."""
         if not self._tokenized_corpus:
             self._bm25 = None
-            logger.info("Built BM25 index with 0 documents (empty corpus)")
+            logger.info("BM25 index is empty")
             return
 
         self._bm25 = BM25Okapi(
@@ -77,7 +151,7 @@ class BM25Retriever:
             b=self._b,
         )
         logger.info(
-            "Built BM25 index with %d documents", len(self._tokenized_corpus)
+            "BM25 index now holds %d document(s)", len(self._tokenized_corpus)
         )
 
     def retrieve(self, query: str, top_k: int = 5) -> list[tuple[str, float]]:
@@ -106,11 +180,22 @@ class BM25Retriever:
         if top_n == 0:
             return []
 
+        # ``argsort`` always returns *top_n* indices, even when every score is
+        # exactly zero because the query shares no token with the corpus.  Those
+        # hits carry no information and would otherwise pollute the RRF fusion,
+        # so they are dropped here.
+        #
+        # Only *exactly* zero is dropped.  A very small corpus pushes the IDF
+        # term negative (rank_bm25 replaces negative IDF with
+        # ``epsilon * average_idf``, which stays negative when the average is
+        # negative), so a plain ``> 0`` filter would make the very first
+        # uploaded document impossible to find by keyword.
         top_indices = np.argsort(scores)[::-1][:top_n]
 
         results = [
             (self._chunk_ids[int(idx)], float(scores[int(idx)]))
             for idx in top_indices
+            if scores[int(idx)] != 0.0
         ]
         return results
 

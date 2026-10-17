@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     """Overlap between consecutive chunks."""
 
     TOP_K: int = 3
-    """Default number of chunks to retrieve."""
+    """Number of chunks in the final context window (after RRF fusion)."""
 
     # ── BM25 ───────────────────────────────────────────────────────────
     BM25_K1: float = 1.5
@@ -45,8 +45,13 @@ class Settings(BaseSettings):
     """RRF smoothing constant (denominator: k + rank)."""
 
     # ── Cross-encoder Reranker ─────────────────────────────────────────
-    RERANKER_ENABLED: bool = True
-    """Enable cross-encoder reranking after RRF fusion."""
+    RERANKER_ENABLED: bool = False
+    """Enable cross-encoder reranking after RRF fusion.
+
+    Off by default: reranking re-sorts and re-truncates the fused list, so the
+    RRF ranking never reaches the prompt.  Enable only when the fused order is
+    deliberately meant to be replaced.
+    """
 
     RERANKER_MODEL: str = "BAAI/bge-reranker-base"
     """HuggingFace model ID for the reranker."""

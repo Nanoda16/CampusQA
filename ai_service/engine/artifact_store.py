@@ -33,9 +33,10 @@ class ArtifactStore:
         package root.  Defaults to ``data/artifacts``.
     """
 
-    def __init__(self, artifact_dir: str = "data/artifacts"):
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        self._artifact_dir = os.path.join(base_dir, artifact_dir)
+    def __init__(self, artifact_dir: str = "artifacts"):
+        from .vector_store import data_root
+
+        self._artifact_dir = os.path.join(data_root(), artifact_dir)
         self._lock = threading.Lock()
 
         os.makedirs(self._artifact_dir, exist_ok=True)
@@ -257,9 +258,10 @@ class ArtifactStore:
         bm25 = BM25Retriever()
         bm25.build(texts, chunk_ids)
 
-        # BM25 save path: ai_service/data/bm25/
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        bm25_path = os.path.join(base_dir, "data", "bm25")
+        # BM25 save path: <data_root>/bm25/
+        from .vector_store import data_root
+
+        bm25_path = os.path.join(data_root(), "bm25")
         bm25.save(bm25_path)
 
         elapsed = time.time() - t0

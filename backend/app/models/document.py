@@ -37,6 +37,7 @@ class Document(Base):
         Index("idx_kb_document_department", "department"),
         Index("idx_kb_document_status", "status"),
         Index("idx_kb_document_created_by", "created_by"),
+        Index("idx_kb_document_vector_doc_id", "vector_doc_id"),
     )
 
     id: Mapped[int] = mapped_column(
@@ -50,6 +51,14 @@ class Document(Base):
     department: Mapped[str | None] = mapped_column(String(100), nullable=True)
     file_type: Mapped[str | None] = mapped_column(String(20), nullable=True)
     file_path: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    vector_doc_id: Mapped[str | None] = mapped_column(
+        String(64),
+        nullable=True,
+        doc=(
+            "向量索引里的文档 ID（知识目录内文件绝对路径的 md5）。"
+            "目录是唯一真相：重建索引后按这个字段把 kb_document 对齐到磁盘。"
+        ),
+    )
     source_url: Mapped[str | None] = mapped_column(String(500), nullable=True)
     tags: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)
     chunk_count: Mapped[int] = mapped_column(

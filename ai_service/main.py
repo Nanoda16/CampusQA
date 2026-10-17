@@ -65,7 +65,15 @@ class HistoryTurn(BaseModel):
 
 class QueryRequest(BaseModel):
     question: str = Field(..., description="The user's question")
-    top_k: int = Field(default=5, ge=1, le=50, description="Number of chunks to retrieve")
+    top_k: int = Field(
+        default=5,
+        ge=1,
+        le=50,
+        description=(
+            "Candidate depth per retriever before RRF fusion. The fused "
+            "ranking is truncated to the pipeline's final window (3 chunks)."
+        ),
+    )
     history: list[HistoryTurn] = Field(
         default_factory=list, description="Prior conversation turns for multi-turn context"
     )
@@ -78,13 +86,39 @@ class QueryResponse(BaseModel):
 
 class ProcessRequest(BaseModel):
     file_path: str = Field(..., description="Path to the document file")
-    doc_id: str | None = Field(None, description="Override doc_id for consistent cleanup")
+    doc_id: str | None = Field(
+        None,
+        description=(
+            "Override doc_id. Normally the id is md5(abs path), so the same "
+            "file always maps to the same id."
+        ),
+    )
+    persist: bool = Field(
+        True,
+        description=(
+            "Copy the parsed text into the knowledge directory before indexing. "
+            "Required for uploads: a full rebuild scans that directory, so a "
+            "document that never landed there would vanish on the next rebuild. "
+            "Pass false when re-indexing a file that already lives in the "
+            "directory."
+        ),
+    )
+    category: str | None = Field(
+        None,
+        description="Sub-folder / category used when persisting the document",
+    )
 
 
 class ProcessResponse(BaseModel):
     chunks_count: int
     indexed: int
     doc_id: str
+    bm25_chunks: int = 0
+    title: str = ""
+    category: str = ""
+    source_url: str = ""
+    file_path: str = ""
+    persisted_path: str | None = None
 
 
 class RebuildDocument(BaseModel):
@@ -105,6 +139,11 @@ class RebuildResponse(BaseModel):
     docs_count: int
     chunks_count: int
     indexed_count: int
+    time_seconds: float = 0.0
+    documents: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Manifest of the indexed files, used to mirror kb_document",
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -151,7 +190,12 @@ async def query(body: QueryRequest) -> dict[str, Any]:
 @app.get("/query/stream")
 async def query_stream(
     question: str = Query(..., description="The user's question"),
-    top_k: int = Query(default=5, ge=1, le=50),
+    top_k: int = Query(
+        default=5,
+        ge=1,
+        le=50,
+        description="Candidate depth per retriever before RRF fusion",
+    ),
     history: str = Query(default="", description="JSON-encoded prior turns"),
 ) -> EventSourceResponse:
     # history arrives as a JSON string (GET query param); parse defensively
@@ -198,11 +242,12 @@ async def query_stream(
 
 @app.post("/rebuild", response_model=RebuildResponse)
 async def rebuild(body: RebuildRequest) -> dict[str, Any]:
-    """Clear all vectors and rebuild index from provided documents.
+    """Deprecated — rebuild from a list of database rows.
 
-    Accepts a list of documents (id, title, content, category, source_url),
-    clears existing FAISS + BM25 indices and artifacts, then chunks, embeds,
-    and indexes every document.  Returns count statistics.
+    The index is now rebuilt from the knowledge directory
+    (``GET /reindex``), which is the single source of truth.  This endpoint is
+    kept only for backwards compatibility: it can only index what MySQL happens
+    to hold, and for PDF/DOCX rows the stored content is empty.
     """
     try:
         docs = [d.model_dump() for d in body.documents]
@@ -217,12 +262,17 @@ async def rebuild(body: RebuildRequest) -> dict[str, Any]:
 
 
 # ---------------------------------------------------------------------------
-# Re-index (legacy — keep backward compat)
+# Re-index — scan the knowledge directory and rebuild everything
 # ---------------------------------------------------------------------------
 
 
 @app.get("/reindex")
 async def reindex() -> dict[str, Any]:
+    """Rebuild the whole index from the knowledge directory.
+
+    Returns the counts plus a ``documents`` manifest so the backend can mirror
+    its ``kb_document`` table to whatever is actually on disk.
+    """
     try:
         result = pipeline.index_documents()
         return result
@@ -238,11 +288,24 @@ async def reindex() -> dict[str, Any]:
 
 @app.post("/process", response_model=ProcessResponse)
 async def process(body: ProcessRequest) -> dict[str, Any]:
+    """Index one document.
+
+    With ``persist=True`` (the default, used for uploads) the parsed text is
+    first written into the knowledge directory and then indexed, so a later
+    ``/reindex`` still finds it.  With ``persist=False`` the file is indexed in
+    place — use that when re-processing a file that already lives there.
+    """
     try:
-        result = pipeline.add_document(
-            file_path=body.file_path,
-            doc_id=body.doc_id,
-        )
+        if body.persist:
+            result = pipeline.import_document(
+                source_path=body.file_path,
+                category=body.category,
+            )
+        else:
+            result = pipeline.add_document(
+                file_path=body.file_path,
+                doc_id=body.doc_id,
+            )
         return result
     except Exception as exc:
         logger.exception("Process document failed")
@@ -250,10 +313,14 @@ async def process(body: ProcessRequest) -> dict[str, Any]:
 
 
 @app.delete("/document/{doc_id}")
-async def delete_document(doc_id: str) -> dict[str, Any]:
-    """Remove a document artifact and its vectors from the index."""
+async def delete_document(doc_id: str, delete_file: bool = True) -> dict[str, Any]:
+    """Remove a document from the index and from the knowledge directory.
+
+    Set ``delete_file=false`` to keep the file on disk while dropping its
+    vectors — that is what "re-process this document" needs.
+    """
     try:
-        result = pipeline.remove_document(doc_id)
+        result = pipeline.remove_document(doc_id, delete_file=delete_file)
         return result
     except Exception as exc:
         logger.exception("Delete document failed")

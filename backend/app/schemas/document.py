@@ -25,6 +25,7 @@ class DocumentUpdate(BaseModel):
     department: str | None = None
     file_type: str | None = None
     file_path: str | None = None
+    vector_doc_id: str | None = None
     source_url: str | None = None
     tags: list[str] | None = None
     chunk_count: int | None = None
@@ -40,6 +41,7 @@ class DocumentResponse(BaseModel):
     department: str | None
     file_type: str | None
     file_path: str | None
+    vector_doc_id: str | None = None
     source_url: str | None
     tags: list | None
     chunk_count: int

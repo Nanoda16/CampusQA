@@ -92,16 +92,17 @@ class Retriever:
         list[dict]
             Each result contains *content*, *doc_id*, *title*, *category*,
             *source_url*, *score*, and *chunk_index*.
-
-        Raises
-        ------
-        RuntimeError
-            If the underlying VectorStore has not been built.
+            Empty list when the knowledge base has not been built yet.
         """
         if not query or not query.strip():
             return []
 
-        self._ensure_built()
+        if not self._is_ready():
+            # Empty knowledge base — nothing to retrieve yet.  Returning an
+            # empty list lets the caller answer "未找到相关校园信息" instead of
+            # surfacing a 500 on a freshly installed instance.
+            self.low_confidence = False
+            return []
 
         query_vec = embed_query(query)                     # (1, dim)
         results = self._vector_store.search(query_vec, top_k)
@@ -146,17 +147,14 @@ class Retriever:
         -------
         list[list[dict]]
             Outer list corresponds to each query; inner lists contain result
-            dicts.
-
-        Raises
-        ------
-        RuntimeError
-            If the underlying VectorStore has not been built.
+            dicts.  Every inner list is empty when the knowledge base has not
+            been built yet.
         """
         if not queries:
             return []
 
-        self._ensure_built()
+        if not self._is_ready():
+            return [[] for _ in queries]
 
         # Separate valid queries from blank ones while tracking positions
         valid_indices: list[int] = []
@@ -197,11 +195,13 @@ class Retriever:
     # Internal helpers
     # ------------------------------------------------------------------
 
-    def _ensure_built(self) -> None:
-        """Check that the underlying index is available, raising otherwise."""
-        if self._vector_store.index is None:
-            raise RuntimeError(
-                "VectorStore has not been built. "
-                "Call vector_store.build(vectors, metadata) or "
-                "ensure the persisted index exists on disk."
-            )
+    def _is_ready(self) -> bool:
+        """True when the vector index exists and holds at least one vector.
+
+        An unbuilt index is a legitimate state — a fresh install has an empty
+        knowledge base until the user uploads something — so callers must get
+        an empty result rather than an exception that the HTTP layer turns into
+        a 500.
+        """
+        index = self._vector_store.index
+        return index is not None and index.ntotal > 0

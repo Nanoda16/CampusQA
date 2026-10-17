@@ -18,7 +18,7 @@ from .citation import validate_citations
 from .fusion import rrf_fuse
 from .generator import Generator
 from .retriever import Retriever
-from .vector_store import VectorStore
+from .vector_store import VectorStore, data_root
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +28,19 @@ def _make_chunk_id(d: dict) -> str:
     doc_id = d.get("doc_id", "")
     chunk_idx = d.get("chunk_index", 0)
     return f"{doc_id}_{chunk_idx}"
+
+
+# ---------------------------------------------------------------------------
+# Hybrid retrieval depth
+# ---------------------------------------------------------------------------
+# Both the dense and the sparse retriever contribute ``_CANDIDATE_DEPTH``
+# hits.  Their ranked lists are fused with RRF (reciprocal rank fusion) and
+# only the top ``_FINAL_TOP_K`` chunks of the fused ranking are handed to the
+# LLM.  Keeping the two numbers separate is what makes the fusion meaningful:
+# the candidate pool has to be wider than the final context window.
+_CANDIDATE_DEPTH = 5
+_FINAL_TOP_K = 3
+_RRF_K = 60.0
 
 
 class RAGPipeline:
@@ -68,20 +81,36 @@ class RAGPipeline:
         self._bm25_results: list[tuple[str, float]] = []
         self._fused_results: list[tuple[str, float, list[float]]] = []
 
-        # Reranker (lazy — only loaded when enabled and first used)
+        # Reranker (lazy — only loaded when enabled and first used).
+        # Off by default: the fused RRF order is the ranking this pipeline is
+        # specified to return.  When the cross-encoder runs afterwards it
+        # replaces that order with its own scores and truncates the list again,
+        # so the fused ranking never reaches the prompt.
         self.reranker: Any | None = None
         self._reranker_enabled: bool = (
-            os.environ.get("RERANKER_ENABLED", "true").lower() == "true"
+            os.environ.get("RERANKER_ENABLED", "false").lower() == "true"
         )
-        self._reranker_top_k: int = 3
+        self._reranker_top_k: int = _FINAL_TOP_K
+
+        # Hybrid retrieval depth — candidates per retriever, final window.
+        self._candidate_depth: int = _CANDIDATE_DEPTH
+        self._final_top_k: int = _FINAL_TOP_K
+        self._rrf_k: float = _RRF_K
 
         logger.info(
-            "RAGPipeline initialised (reranker=%s)",
+            "RAGPipeline initialised (reranker=%s, candidates=%d, final_top_k=%d)",
             "enabled" if self._reranker_enabled else "disabled",
+            self._candidate_depth,
+            self._final_top_k,
         )
 
-        # Auto-rebuild FAISS + BM25 from artifacts if the index is missing
+        # Auto-rebuild FAISS from artifacts if the index is missing
         self._check_auto_rebuild()
+        # BM25 is restored separately.  It used to be built only by the
+        # indexing methods, so a process that started with an existing FAISS
+        # index never had a sparse index at all and RRF fused the dense
+        # ranking with an empty list.
+        self._load_or_rebuild_bm25()
 
     # ------------------------------------------------------------------
     # Generator access (lazy — indexing/retrieval must work without an LLM)
@@ -134,9 +163,9 @@ class RAGPipeline:
         :meth:`ArtifactStore.rebuild_index` and then reloads the vector
         store so it reflects the newly-built index.
         """
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        index_path = os.path.join(base_dir, "data", "faiss.index")
-        artifact_dir = os.path.join(base_dir, "data", "artifacts")
+        base_dir = data_root()
+        index_path = os.path.join(base_dir, "faiss.index")
+        artifact_dir = os.path.join(base_dir, "artifacts")
 
         if os.path.isfile(index_path):
             return  # Index already exists — nothing to do
@@ -164,6 +193,74 @@ class RAGPipeline:
 
         # Reload vector store so the newly-built index is available in-memory
         self.vector_store.load()
+
+    # ------------------------------------------------------------------
+    # Sparse index persistence
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _bm25_dir() -> str:
+        """Return the directory that holds the persisted BM25 index."""
+        return os.path.join(data_root(), "bm25")
+
+    def _load_or_rebuild_bm25(self) -> None:
+        """Restore the sparse index, falling back to rebuilding it.
+
+        The BM25 index has to exist before the first query, otherwise the
+        sparse half of the hybrid retrieval contributes nothing.  Two sources
+        are tried in order:
+
+        1. the persisted pickle under ``data/bm25/``;
+        2. a rebuild from :attr:`vector_store` metadata, which always mirrors
+           the dense index.
+        """
+        if self.bm25_retriever.count > 0:
+            return
+
+        bm25_dir = self._bm25_dir()
+        if os.path.isdir(bm25_dir):
+            try:
+                self.bm25_retriever.load(bm25_dir)
+            except Exception:
+                logger.warning(
+                    "Could not load BM25 index from %s — rebuilding from the "
+                    "vector store instead",
+                    bm25_dir,
+                    exc_info=True,
+                )
+            if self.bm25_retriever.count > 0:
+                return
+
+        if self.vector_store.metadata:
+            count = self._rebuild_bm25_from_vector_store()
+            logger.info("Rebuilt BM25 index from vector store (%d chunks)", count)
+        else:
+            logger.info("BM25 index is empty — no vector store metadata yet")
+
+    def _rebuild_bm25_from_vector_store(self) -> int:
+        """Rebuild the sparse index from the dense store's chunk metadata.
+
+        The vector store is the single source of truth for chunk text, so this
+        keeps dense and sparse perfectly aligned.
+
+        Returns
+        -------
+        int
+            Number of chunks in the rebuilt index.
+        """
+        texts: list[str] = []
+        chunk_ids: list[str] = []
+        for meta in self.vector_store.metadata:
+            content = meta.get("content") or ""
+            if not content:
+                continue
+            texts.append(content)
+            chunk_ids.append(_make_chunk_id(meta))
+
+        self.bm25_retriever.build(texts, chunk_ids)
+        if texts:
+            self.bm25_retriever.save(self._bm25_dir())
+        return len(texts)
 
     # ------------------------------------------------------------------
     # Rejection template
@@ -209,62 +306,86 @@ class RAGPipeline:
 
             self.reranker = Reranker()
 
-        candidates = [(c["doc_id"], c["content"]) for c in chunks]
+        candidates = [(_make_chunk_id(c), c["content"]) for c in chunks]
         reranked = self.reranker.rerank(query, candidates)
 
-        # Build score lookup and re-sort
+        # Build score lookup and re-sort.  The key must be the *chunk* id:
+        # several chunks of the same document share a ``doc_id``, so keying on
+        # ``doc_id`` kept only the last score and destroyed the per-chunk
+        # reranking signal exactly where it matters most.
         score_map = {cid: score for cid, score in reranked}
         sorted_chunks = sorted(
             chunks,
-            key=lambda c: score_map.get(c["doc_id"], 0.0),
+            key=lambda c: score_map.get(_make_chunk_id(c), 0.0),
             reverse=True,
         )
 
         # Annotate with reranker score (preserving original score)
         for c in sorted_chunks:
-            c["rerank_score"] = score_map.get(c["doc_id"], c.get("score", 0.0))
+            c["rerank_score"] = score_map.get(
+                _make_chunk_id(c), c.get("score", 0.0)
+            )
 
         return sorted_chunks[: self._reranker_top_k]
 
-    @staticmethod
-    def _reorder_by_fusion(
-        chunks: list[dict],
+    def _materialize_fusion(
+        self,
+        dense_chunks: list[dict],
         fused_results: list[tuple[str, float, list[float]]],
     ) -> list[dict]:
-        """Reorder dense chunks to match RRF fused ranking.
+        """Turn the fused ranking into chunk dicts, dense *and* sparse hits.
 
-        Builds an ordering from *fused_results* while preserving the full
-        chunk dicts.  Chunks that only appear in BM25 (not in *chunks*) are
-        silently dropped because their metadata is unavailable.
+        ``rrf_fuse`` scores the union of both retrievers' results, but only the
+        dense side carries metadata in memory.  Chunks that the sparse
+        retriever surfaced are looked up in the vector store so they are not
+        dropped — dropping them would reduce the "hybrid" retrieval to a mere
+        re-ordering of the dense list.
 
         Parameters
         ----------
-        chunks : list[dict]
+        dense_chunks : list[dict]
             Dense retriever result dicts.
         fused_results : list[tuple[str, float, list[float]]]
-            Output from :func:`rrf_fuse`.
+            Output from :func:`rrf_fuse`, sorted descending by fused score.
 
         Returns
         -------
         list[dict]
-            Input chunks reordered by descending fused score, then by
-            descending dense score for ties.
+            Chunk dicts in fused order.  Each carries ``rrf_score``, plus
+            ``dense_score``/``bm25_score`` for sparse-only hits (the dense
+            results already expose their cosine similarity as ``score``).
         """
-        chunk_map = {_make_chunk_id(c): c for c in chunks}
+        dense_map = {_make_chunk_id(c): c for c in dense_chunks}
+
+        sparse_only_ids = [
+            cid for cid, _, _ in fused_results if cid not in dense_map
+        ]
+        sparse_meta = (
+            self.vector_store.chunks_by_chunk_id(sparse_only_ids)
+            if sparse_only_ids
+            else {}
+        )
+
         ordered: list[dict] = []
         seen: set[str] = set()
-        for cid, _, _ in fused_results:
-            if cid in chunk_map and cid not in seen:
-                ordered.append(chunk_map[cid])
-                seen.add(cid)
+        for cid, fused_score, sources in fused_results:
+            if cid in seen:
+                continue
 
-        # Append any dense chunks that were not ranked by fusion
-        # (shouldn't happen in practice, but defensive)
-        for c in chunks:
-            cid = _make_chunk_id(c)
-            if cid not in seen:
-                ordered.append(c)
-                seen.add(cid)
+            if cid in dense_map:
+                chunk = dict(dense_map[cid])
+            elif cid in sparse_meta:
+                chunk = dict(sparse_meta[cid])
+                # No cosine similarity exists for a sparse-only hit, so do not
+                # fabricate one: callers treat ``score`` as a 0..1 relevance.
+                chunk["dense_score"] = sources[0]
+                chunk["bm25_score"] = sources[1]
+            else:
+                continue  # stale BM25 entry with no matching chunk
+
+            chunk["rrf_score"] = fused_score
+            ordered.append(chunk)
+            seen.add(cid)
 
         return ordered
 
@@ -288,7 +409,9 @@ class RAGPipeline:
         query : str
             The user's question.
         top_k : int
-            Number of chunks to retrieve (default 5).
+            Candidate depth — how many hits each retriever contributes before
+            fusion (default 5).  The fused ranking is truncated to
+            ``_FINAL_TOP_K`` chunks, so fewer sources than this reach the LLM.
         min_score : float
             Minimum similarity score threshold (default 0.0).
         temperature : float
@@ -323,14 +446,15 @@ class RAGPipeline:
                 "sources": [],
             }
 
-        # 1. Dense retrieval (vectors)
-        chunks = self.retriever.retrieve(query, top_k, min_score)
+        # 1. Dense retrieval (vectors) — candidate pool
+        depth = max(top_k, self._final_top_k)
+        chunks = self.retriever.retrieve(query, depth, min_score)
 
-        # 1b. BM25 keyword retrieval (runs in parallel — results stored for fusion)
-        self._bm25_results = self.bm25_retriever.retrieve(query, top_k)
+        # 1b. Sparse retrieval (BM25) — same candidate depth
+        self._bm25_results = self.bm25_retriever.retrieve(query, depth)
 
-        # 2. Graceful fallback when no results
-        if not chunks:
+        # 2. Graceful fallback when neither retriever returned anything
+        if not chunks and not self._bm25_results:
             logger.info("No relevant chunks found for query: %s", query[:60])
             return {"answer": "未找到相关校园信息", "sources": []}
 
@@ -344,16 +468,25 @@ class RAGPipeline:
                 "sources": [],
             }
 
-        # 2c. RRF fusion — combine dense + BM25 rankings
-        self._fused_results = rrf_fuse(chunks, self._bm25_results, top_k=top_k)
+        # 3. RRF fusion — merge the two ranked lists, then keep the best few.
+        #    Rank-based fusion, so the two retrievers never have to agree on
+        #    the scale of their scores.
+        self._fused_results = rrf_fuse(
+            chunks,
+            self._bm25_results,
+            k=self._rrf_k,
+            top_k=len(chunks) + len(self._bm25_results),
+        )
         logger.debug(
             "RRF fusion: %d dense + %d BM25 → %d fused results for query: %s",
             len(chunks), len(self._bm25_results), len(self._fused_results),
             query[:60],
         )
-        chunks = self._reorder_by_fusion(chunks, self._fused_results)
+        chunks = self._materialize_fusion(chunks, self._fused_results)[
+            : self._final_top_k
+        ]
 
-        # 2d. Optional cross-encoder rerank (take top-5, re-rank, keep top-3)
+        # 4. Optional cross-encoder rerank (off by default — see __init__)
         if self._reranker_enabled and chunks:
             logger.debug("Reranking %d chunks for query: %s", len(chunks), query[:60])
             chunks = self._rerank_chunks(query, chunks)
@@ -405,7 +538,9 @@ class RAGPipeline:
         query : str
             The user's question.
         top_k : int
-            Number of chunks to retrieve (default 5).
+            Candidate depth — how many hits each retriever contributes before
+            fusion (default 5).  The fused ranking is truncated to
+            ``_FINAL_TOP_K`` chunks, so fewer sources than this reach the LLM.
         min_score : float
             Minimum similarity score threshold (default 0.0).
         temperature : float
@@ -443,14 +578,15 @@ class RAGPipeline:
         # 1. Status — retrieval phase
         yield {"type": "status", "message": "检索中..."}
 
-        # 2. Retrieve (dense)
-        chunks = self.retriever.retrieve(query, top_k, min_score)
+        # 2. Retrieve (dense) — candidate pool
+        depth = max(top_k, self._final_top_k)
+        chunks = self.retriever.retrieve(query, depth, min_score)
 
-        # 2b. BM25 keyword retrieval (parallel — stored for fusion in Task 8)
-        self._bm25_results = self.bm25_retriever.retrieve(query, top_k)
+        # 2b. Sparse retrieval (BM25) — same candidate depth
+        self._bm25_results = self.bm25_retriever.retrieve(query, depth)
 
         # 3. No results — short-circuit with fallback
-        if not chunks:
+        if not chunks and not self._bm25_results:
             yield {
                 "type": "done",
                 "answer": "未找到相关校园信息",
@@ -470,15 +606,22 @@ class RAGPipeline:
             }
             return
 
-        # 3c. RRF fusion — combine dense + BM25 rankings
-        self._fused_results = rrf_fuse(chunks, self._bm25_results, top_k=top_k)
+        # 3c. RRF fusion — merge the two ranked lists, then keep the best few
+        self._fused_results = rrf_fuse(
+            chunks,
+            self._bm25_results,
+            k=self._rrf_k,
+            top_k=len(chunks) + len(self._bm25_results),
+        )
         logger.debug(
             "RRF fusion: %d dense + %d BM25 → %d fused results (stream)",
             len(chunks), len(self._bm25_results), len(self._fused_results),
         )
-        chunks = self._reorder_by_fusion(chunks, self._fused_results)
+        chunks = self._materialize_fusion(chunks, self._fused_results)[
+            : self._final_top_k
+        ]
 
-        # 3d. Optional cross-encoder rerank (take top-5, re-rank, keep top-3)
+        # 3d. Optional cross-encoder rerank (off by default — see __init__)
         if self._reranker_enabled and chunks:
             logger.debug(
                 "Reranking %d chunks for query (stream): %s",
@@ -487,15 +630,7 @@ class RAGPipeline:
             chunks = self._rerank_chunks(query, chunks)
 
         # 4. Emit sources for frontend display
-        sources = [
-            {
-                "title": c.get("title", ""),
-                "content_preview": c.get("content", "")[:100],
-                "score": c.get("score", 0.0),
-            }
-            for c in chunks
-        ]
-        yield {"type": "sources", "data": sources}
+        yield {"type": "sources", "data": prompts.format_sources(chunks)}
 
         # 5. Build prompt (+ optional history for multi-turn context)
         system_prompt, user_prompt = prompts.build_prompt(query, chunks, history)
@@ -523,7 +658,11 @@ class RAGPipeline:
             )
         full_answer = validation["answer"]
 
-        yield {"type": "done", "answer": full_answer, "sources": sources}
+        yield {
+            "type": "done",
+            "answer": full_answer,
+            "sources": prompts.format_sources(chunks),
+        }
 
     # ------------------------------------------------------------------
     # Indexing
@@ -557,7 +696,11 @@ class RAGPipeline:
         -------
         dict
             ``{"docs_count", "chunks_count", "indexed_count",
-            "time_seconds"}``.
+            "time_seconds", "documents"}`` where ``documents`` is a manifest —
+            one entry per indexed file with ``doc_id``, ``title``,
+            ``category``, ``source_url``, ``file_path`` and ``chunk_count``.
+            The backend mirrors ``kb_document`` from this manifest, which is
+            what makes the folder the single source of truth.
         """
         t0 = time.time()
 
@@ -574,6 +717,7 @@ class RAGPipeline:
                 "chunks_count": 0,
                 "indexed_count": 0,
                 "time_seconds": round(elapsed, 2),
+                "documents": [],
             }
 
         # 2. Split into overlapping chunks
@@ -606,12 +750,7 @@ class RAGPipeline:
         # 6. Build BM25 keyword index in parallel
         chunk_ids = [f"{c['doc_id']}_{c['chunk_index']}" for c in chunks]
         self.bm25_retriever.build(texts, chunk_ids)
-        bm25_path = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "data",
-            "bm25",
-        )
-        self.bm25_retriever.save(bm25_path)
+        self.bm25_retriever.save(self._bm25_dir())
 
         elapsed = time.time() - t0
         logger.info("Indexed %d chunks (dense + BM25) in %.2fs", chunk_count, elapsed)
@@ -621,7 +760,31 @@ class RAGPipeline:
             "chunks_count": chunk_count,
             "indexed_count": chunk_count,
             "time_seconds": round(elapsed, 2),
+            "documents": self._build_manifest(docs, chunks),
         }
+
+    @staticmethod
+    def _build_manifest(
+        docs: list[dict], chunks: list[dict]
+    ) -> list[dict[str, Any]]:
+        """Summarise indexed files for the backend's ``kb_document`` mirror."""
+        manifest: dict[str, dict[str, Any]] = {}
+        for doc in docs:
+            manifest[doc["doc_id"]] = {
+                "doc_id": doc["doc_id"],
+                "title": doc.get("title", ""),
+                "category": doc.get("category", ""),
+                "source_url": doc.get("source_url", ""),
+                "file_path": doc.get("file_path", ""),
+                "chunk_count": 0,
+            }
+
+        for chunk in chunks:
+            entry = manifest.get(chunk["doc_id"])
+            if entry is not None:
+                entry["chunk_count"] += 1
+
+        return list(manifest.values())
 
     def add_document(
         self,
@@ -648,11 +811,13 @@ class RAGPipeline:
         Returns
         -------
         dict
-            ``{"chunks_count", "indexed", "doc_id"}``.
+            ``{"chunks_count", "indexed", "doc_id", "bm25_chunks", "title",
+            "category", "source_url", "file_path"}``.
         """
         # 1. Load the single document
         doc = loader.load_file(file_path)
         doc_id = doc_id or doc["doc_id"]
+        doc["doc_id"] = doc_id
 
         # 2. Chunk
         chunks = chunker.chunk_docs([doc], chunk_size, chunk_overlap)
@@ -660,7 +825,16 @@ class RAGPipeline:
         logger.info("Created %d chunk(s) for %s", chunk_count, file_path)
 
         if chunk_count == 0:
-            return {"chunks_count": 0, "indexed": 0, "doc_id": doc_id}
+            return {
+                "chunks_count": 0,
+                "indexed": 0,
+                "doc_id": doc_id,
+                "bm25_chunks": self.bm25_retriever.count,
+                "title": doc.get("title", ""),
+                "category": doc.get("category", ""),
+                "source_url": doc.get("source_url", ""),
+                "file_path": doc.get("file_path", ""),
+            }
 
         # 3. Embed
         texts = [c["content"] for c in chunks]
@@ -683,15 +857,86 @@ class RAGPipeline:
         self.vector_store.add(vectors, metadata)
         self.vector_store.save()
 
-        logger.info("Added %d chunk(s) (doc_id=%s)", chunk_count, doc_id)
+        # 5b. Keep the sparse index in sync.  Without this a document uploaded
+        #     through the UI is invisible to keyword search forever, so the
+        #     "hybrid" retrieval silently degrades to dense-only for every
+        #     document that was not present at index-build time.
+        chunk_ids = [_make_chunk_id(m) for m in metadata]
+        self.bm25_retriever.add_documents(texts, chunk_ids)
+        self.bm25_retriever.save(self._bm25_dir())
+
+        logger.info(
+            "Added %d chunk(s) (doc_id=%s, bm25 chunks=%d)",
+            chunk_count,
+            doc_id,
+            self.bm25_retriever.count,
+        )
         return {
             "chunks_count": chunk_count,
             "indexed": chunk_count,
             "doc_id": doc_id,
+            "bm25_chunks": self.bm25_retriever.count,
+            "title": doc.get("title", ""),
+            "category": doc.get("category", ""),
+            "source_url": doc.get("source_url", ""),
+            "file_path": doc.get("file_path", ""),
         }
+
+    def import_document(
+        self,
+        source_path: str,
+        category: str | None = None,
+        chunk_size: int = 500,
+        chunk_overlap: int = 50,
+    ) -> dict[str, Any]:
+        """Normalise an uploaded file into the knowledge directory and index it.
+
+        The uploaded file may be any format :func:`loader.load_file` understands
+        (``.md``/``.txt``/``.pdf``/``.docx``/``.doc``).  Its text is written
+        into the knowledge directory as markdown first, so that a later full
+        rebuild — which only scans that directory — still finds it.  Without
+        this step an uploaded document would silently disappear from the index
+        the next time the index is rebuilt.
+
+        Parameters
+        ----------
+        source_path : str
+            Path of the uploaded (staged) file.
+        category : str, optional
+            Sub-folder / category for the document (default ``uploads``).
+
+        Returns
+        -------
+        dict
+            Same payload as :meth:`add_document`, plus ``persisted_path``.
+        """
+        parsed = loader.load_file(source_path)
+        persisted_path = loader.write_content_doc(parsed, category=category)
+        result = self.add_document(
+            persisted_path,
+            chunk_size=chunk_size,
+            chunk_overlap=chunk_overlap,
+        )
+        result["persisted_path"] = persisted_path
+        logger.info(
+            "Imported %s -> %s (doc_id=%s, %d chunk(s))",
+            source_path,
+            persisted_path,
+            result["doc_id"],
+            result["chunks_count"],
+        )
+        return result
 
     def rebuild_from_documents(self, documents: list[dict]) -> dict[str, Any]:
         """Rebuild the entire index from a list of document dicts (no file I/O).
+
+        .. deprecated::
+            A full rebuild now scans the knowledge directory instead — see
+            :meth:`index_documents`.  Rebuilding from database rows only
+            indexed whatever happened to be in ``kb_document.content``, which
+            is empty for PDF/DOCX uploads, and it silently dropped every seed
+            document that had never been inserted into MySQL.  Kept only so
+            existing callers do not break.
 
         Clears existing artifacts and vector store, then rebuilds from scratch
         using the provided document data.  Each document is chunked, embedded,
@@ -737,11 +982,7 @@ class RAGPipeline:
         )
         self.vector_store.save()
         self.bm25_retriever.build([], [])
-        bm25_dir = os.path.join(
-            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-            "data", "bm25"
-        )
-        self.bm25_retriever.save(bm25_dir)
+        self.bm25_retriever.save(self._bm25_dir())
 
         if doc_count == 0:
             return {"docs_count": 0, "chunks_count": 0, "indexed_count": 0}
@@ -793,9 +1034,7 @@ class RAGPipeline:
         # 8. Build BM25 keyword index in parallel
         chunk_ids = [m["chunk_id"] for m in metadata]
         self.bm25_retriever.build(texts, chunk_ids)
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        bm25_path = os.path.join(base_dir, "data", "bm25")
-        self.bm25_retriever.save(bm25_path)
+        self.bm25_retriever.save(self._bm25_dir())
 
         elapsed = time.time() - t0
         logger.info(
@@ -815,37 +1054,83 @@ class RAGPipeline:
     # Remove document
     # ------------------------------------------------------------------
 
-    def remove_document(self, doc_id: str) -> dict[str, Any]:
-        """Remove a document from the artifact store and vector index.
+    def remove_document(self, doc_id: str, delete_file: bool = True) -> dict[str, Any]:
+        """Remove a document from the index, the artifact store and the disk.
 
         Parameters
         ----------
         doc_id : str
-            Document identifier (backend integer ID).
+            Index document id (``md5`` of the file path).
+        delete_file : bool
+            Also delete the file from the knowledge directory (default
+            ``True``).  Pass ``False`` to re-index a document in place — for
+            example when the user asks to re-process it: the vectors must go,
+            but the file has to stay.
 
         Returns
         -------
         dict
-            ``{"artifact_deleted": bool, "vectors_deleted": int}``.
+            ``{"artifact_deleted": bool, "vectors_deleted": int,
+            "bm25_deleted": int, "file_deleted": bool}``.
         """
         from .artifact_store import ArtifactStore
 
         store = ArtifactStore()
         artifact_deleted = store.delete_doc(doc_id)
 
+        # Capture the chunk ids (and the on-disk file) before the vectors
+        # disappear: they are the only handles left for this document.
+        removed_chunk_ids = self.vector_store.chunk_ids_for_doc(doc_id)
+        source_file = self._content_file_for_doc(doc_id)
+
         vectors_deleted = self.vector_store.delete(doc_id)
         self.vector_store.save()
 
+        bm25_deleted = self.bm25_retriever.remove_documents(removed_chunk_ids)
+        if bm25_deleted:
+            self.bm25_retriever.save(self._bm25_dir())
+
+        file_deleted = False
+        if delete_file and source_file:
+            try:
+                os.unlink(source_file)
+                file_deleted = True
+                logger.info("Deleted knowledge file %s", source_file)
+            except OSError as exc:  # pragma: no cover - 极少数权限/占用情况
+                logger.warning("Could not delete %s: %s", source_file, exc)
+
         logger.info(
-            "Removed document %s (artifact=%s, vectors=%d)",
+            "Removed document %s (artifact=%s, vectors=%d, bm25=%d, file=%s)",
             doc_id,
             artifact_deleted,
             vectors_deleted,
+            bm25_deleted,
+            file_deleted,
         )
         return {
             "artifact_deleted": artifact_deleted,
             "vectors_deleted": vectors_deleted,
+            "bm25_deleted": bm25_deleted,
+            "file_deleted": file_deleted,
         }
+
+    def _content_file_for_doc(self, doc_id: str) -> str | None:
+        """Find the knowledge-directory file that produced *doc_id*.
+
+        ``doc_id`` is ``md5`` of the file's absolute path, so the mapping is
+        recovered by re-scanning the directory.  Returns ``None`` when the file
+        is no longer on disk (already removed, or a legacy database-only
+        document).
+        """
+        try:
+            candidates = loader.load_knowledge_docs()
+        except FileNotFoundError:
+            return None
+
+        for doc in candidates:
+            if str(doc.get("doc_id", "")) == str(doc_id):
+                return doc.get("file_path")
+        return None
 
     # ------------------------------------------------------------------
     # Diagnostics
@@ -863,9 +1148,15 @@ class RAGPipeline:
         return {
             "pipeline": {
                 "retriever_ready": self.vector_store.index is not None,
-                "default_top_k": 5,
-                "default_min_score": 0.0,
+                "dense_ready": self.vector_store.index is not None,
                 "bm25_ready": self.bm25_retriever.count > 0,
+                "bm25_chunks": self.bm25_retriever.count,
+                "candidate_depth": self._candidate_depth,
+                "final_top_k": self._final_top_k,
+                "rrf_k": self._rrf_k,
+                "reranker_enabled": self._reranker_enabled,
+                "default_top_k": self._candidate_depth,
+                "default_min_score": 0.0,
             },
             "vector_store": store_stats,
         }

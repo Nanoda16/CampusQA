@@ -39,7 +39,8 @@ CREATE TABLE IF NOT EXISTS kb_document (
     category        VARCHAR(50)     DEFAULT NULL             COMMENT '分类: news/academic/admin/departments等',
     department      VARCHAR(100)    DEFAULT NULL             COMMENT '所属部门',
     file_type       VARCHAR(20)     DEFAULT NULL             COMMENT '文件类型: pdf/docx/txt/md',
-    file_path       VARCHAR(500)    DEFAULT NULL             COMMENT '文件存储路径',
+    file_path       VARCHAR(500)    DEFAULT NULL             COMMENT '知识目录内的文件路径(唯一真相)',
+    vector_doc_id   VARCHAR(64)     DEFAULT NULL             COMMENT '向量索引内的文档ID(文件路径的md5)',
     source_url      VARCHAR(500)    DEFAULT NULL             COMMENT '来源URL',
     tags            JSON            DEFAULT NULL             COMMENT '标签数组',
     chunk_count     INT             DEFAULT 0                COMMENT '切片数量',
@@ -51,7 +52,8 @@ CREATE TABLE IF NOT EXISTS kb_document (
     KEY idx_category (category),
     KEY idx_department (department),
     KEY idx_status (status),
-    KEY idx_created_by (created_by)
+    KEY idx_created_by (created_by),
+    KEY idx_vector_doc_id (vector_doc_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='知识库文档表';
 
 -- ============================================================

@@ -178,6 +178,38 @@ def build_prompt(
 # ---------------------------------------------------------------------------
 
 
+def format_sources(chunks: list[dict]) -> list[dict[str, Any]]:
+    """Shape retrieved chunks into the ``sources`` payload the UI renders.
+
+    ``score`` is the dense cosine similarity.  A chunk that only the sparse
+    retriever surfaced has no such score, so the key is omitted instead of
+    being reported as ``0.0`` — the UI draws a relevance bar from it and a
+    fabricated zero would read as "retrieval failed".
+
+    Parameters
+    ----------
+    chunks : list[dict]
+        Retrieved chunks, in final ranking order.
+
+    Returns
+    -------
+    list[dict]
+        One entry per chunk: ``title``, ``content_preview`` and, when the
+        chunk came from the dense index, ``score``.
+    """
+    sources: list[dict[str, Any]] = []
+    for chunk in chunks:
+        entry: dict[str, Any] = {
+            "title": chunk.get("title", ""),
+            "content_preview": (chunk.get("content") or "")[:100],
+        }
+        score = chunk.get("score")
+        if score is not None:
+            entry["score"] = score
+        sources.append(entry)
+    return sources
+
+
 def format_answer(answer: str, chunks: list[dict]) -> dict[str, Any]:
     """Wrap the LLM answer with structured source metadata.
 
@@ -194,18 +226,9 @@ def format_answer(answer: str, chunks: list[dict]) -> dict[str, Any]:
     dict
         ``{"answer": <str>, "sources": [{"title": ..., "content_preview": ..., "score": ...}, ...]}``
     """
-    sources: list[dict[str, Any]] = []
-    for chunk in chunks:
-        content = chunk.get("content", "")
-        sources.append({
-            "title": chunk.get("title", ""),
-            "content_preview": content[:100],
-            "score": chunk.get("score", 0.0),
-        })
-
     return {
         "answer": answer,
-        "sources": sources,
+        "sources": format_sources(chunks),
     }
 
 

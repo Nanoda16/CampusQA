@@ -4,9 +4,109 @@ Loads markdown/text documents from knowledge_docs/ directory.
 """
 
 import hashlib
+import logging
 import os
 import re
+import uuid
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+
+def default_knowledge_dir() -> str:
+    """Return the project's default knowledge-base directory.
+
+    This is the one folder that holds every indexable document — the seed
+    corpus shipped as a release asset *and* the files users upload through the
+    UI.  Rebuilding the index always scans this folder, so it is the single
+    source of truth for "what should be searchable".
+
+    Overridable with the ``KNOWLEDGE_DIR`` environment variable (absolute, or
+    relative to the repository root).
+    """
+    configured = os.environ.get("KNOWLEDGE_DIR", "").strip()
+    if configured:
+        if not os.path.isabs(configured):
+            repo_root = os.path.abspath(
+                os.path.join(os.path.dirname(__file__), "../..")
+            )
+            configured = os.path.join(repo_root, configured)
+        return os.path.abspath(configured)
+
+    return os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "../../knowledge_docs")
+    )
+
+
+# Extensions the directory scanner accepts.  Only plain text: binary formats
+# are normalised into .md at upload time, so this folder always stays
+# human-readable and diffable.
+INDEXABLE_EXTENSIONS = (".md", ".txt")
+
+
+def _iter_text_files(knowledge_dir: str):
+    """Yield every indexable file under *knowledge_dir*, sorted by path."""
+    found = []
+    for ext in INDEXABLE_EXTENSIONS:
+        found.extend(Path(knowledge_dir).rglob(f"*{ext}"))
+    return sorted(found)
+
+
+def _safe_segment(value: str, max_len: int = 60) -> str:
+    """Turn arbitrary text into a filesystem-safe path segment."""
+    cleaned = re.sub(r'[\\/:*?"<>|\r\n\t]+', "_", value or "").strip(" ._")
+    return cleaned[:max_len] or "doc"
+
+
+def write_content_doc(
+    doc: dict,
+    category: str | None = None,
+    suffix: str = ".md",
+) -> str:
+    """Persist a parsed document into the knowledge directory as plain text.
+
+    Uploads are normalised this way so that the directory stays the single
+    source of truth: whatever lands here is picked up by the next full rebuild,
+    no matter whether it arrived as a seed corpus or as a UI upload.
+
+    Parameters
+    ----------
+    doc : dict
+        A document dict as returned by :func:`load_file` (``title``,
+        ``content``, ``source_url`` are used).
+    category : str, optional
+        Sub-folder to place the file in.  Defaults to ``uploads``.  The folder
+        name doubles as the document's ``category`` when the directory is
+        re-scanned.
+    suffix : str
+        File extension to write (default ``.md``).
+
+    Returns
+    -------
+    str
+        Absolute path of the written file.  Its md5 is the document's
+        ``doc_id``, which means the same file always maps to the same id.
+    """
+    base = default_knowledge_dir()
+    target_dir = os.path.join(base, _safe_segment(category or "uploads", 40))
+    os.makedirs(target_dir, exist_ok=True)
+
+    stem = _safe_segment(doc.get("title") or "doc")
+    # A short suffix keeps two uploads that share a title from colliding
+    # without making the file name meaningless.
+    file_name = f"{stem}_{uuid.uuid4().hex[:8]}{suffix}"
+    path = os.path.join(target_dir, file_name)
+
+    lines = [f"# {doc.get('title') or stem}", ""]
+    if doc.get("source_url"):
+        lines.extend([f"> 来源: {doc['source_url']}", ""])
+    lines.append(doc.get("content") or "")
+
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write("\n".join(lines))
+
+    logger.info("Wrote uploaded document into knowledge dir: %s", path)
+    return path
 
 
 def _read_file_with_bom_handling(file_path: str) -> str:
@@ -174,24 +274,33 @@ def load_knowledge_docs(knowledge_dir: str | None = None) -> list[dict]:
     Raises
     ------
     FileNotFoundError
-        If *knowledge_dir* does not exist.
+        Only when *knowledge_dir* was passed explicitly and does not exist —
+        a typo in a user-supplied path must not silently look like "0 documents
+        indexed".  The default directory is created on demand instead.
     """
+    explicit = knowledge_dir is not None
+
     if knowledge_dir is None:
-        knowledge_dir = os.path.join(
-            os.path.dirname(__file__), "../../knowledge_docs"
-        )
+        knowledge_dir = default_knowledge_dir()
     knowledge_dir = os.path.abspath(knowledge_dir)
 
     if not os.path.isdir(knowledge_dir):
-        raise FileNotFoundError(
-            f"Knowledge directory not found: {knowledge_dir}"
+        if explicit:
+            raise FileNotFoundError(
+                f"Knowledge directory not found: {knowledge_dir}"
+            )
+        # Fresh install: there is no seed corpus yet, so make the drop-in
+        # folder instead of failing.  ``index_documents`` then reports
+        # "0 documents" and the UI can tell the user to upload something.
+        os.makedirs(knowledge_dir, exist_ok=True)
+        logger.warning(
+            "Knowledge directory did not exist, created empty: %s", knowledge_dir
         )
+        return []
 
     docs = []
-    md_files = sorted(Path(knowledge_dir).rglob("*.md"))
-
-    for md_path in md_files:
-        file_path = str(md_path)
+    for text_path in _iter_text_files(knowledge_dir):
+        file_path = str(text_path)
 
         # Skip files that are too small (empty / minimal)
         if os.path.getsize(file_path) < 50:

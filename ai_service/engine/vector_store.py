@@ -12,6 +12,23 @@ import faiss
 import numpy as np
 
 
+def data_root() -> str:
+    """Return the directory that holds the derived index artifacts.
+
+    Holds ``faiss.index``, ``metadata.json`` and ``bm25/``.  Overridable with the
+    ``AI_DATA_DIR`` environment variable (absolute, or relative to
+    ``ai_service/``), which keeps tests and multi-instance setups from writing
+    into the checked-out tree.
+    """
+    base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    configured = os.environ.get("AI_DATA_DIR", "").strip()
+    if configured:
+        if not os.path.isabs(configured):
+            configured = os.path.join(base_dir, configured)
+        return os.path.abspath(configured)
+    return os.path.join(base_dir, "data")
+
+
 class VectorStore:
     """Persistent vector index backed by FAISS (IndexFlatIP) with JSON metadata.
 
@@ -25,9 +42,10 @@ class VectorStore:
     If both files already exist on construction they are loaded automatically.
     """
 
-    def __init__(self, index_path: str = "data/faiss.index", meta_path: str = "data/metadata.json"):
-        # Resolve paths relative to the ai_service/ directory (one level up from engine/)
-        base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    def __init__(self, index_path: str = "faiss.index", meta_path: str = "metadata.json"):
+        # Resolve paths relative to the ai_service/ data directory (overridable
+        # with AI_DATA_DIR), not the process CWD.
+        base_dir = data_root()
         self.index_path = os.path.join(base_dir, index_path)
         self.meta_path = os.path.join(base_dir, meta_path)
 
@@ -127,6 +145,50 @@ class VectorStore:
             })
 
         return results
+
+    # ------------------------------------------------------------------
+    # Chunk-id helpers (sparse/dense merge)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _chunk_id(meta: dict) -> str:
+        """Build ``{doc_id}_{chunk_index}`` for a metadata entry."""
+        return f"{meta.get('doc_id', '')}_{meta.get('chunk_index', 0)}"
+
+    def chunk_ids_for_doc(self, doc_id: str) -> set[str]:
+        """Return the chunk ids that belong to *doc_id*.
+
+        Used to keep the BM25 index in sync when a document is deleted.
+        """
+        return {
+            self._chunk_id(meta)
+            for meta in self.metadata
+            if str(meta.get("doc_id", "")) == str(doc_id)
+        }
+
+    def chunks_by_chunk_id(self, chunk_ids: list[str] | set[str]) -> dict[str, dict]:
+        """Look up chunk metadata by chunk id.
+
+        Used by the pipeline to materialise chunks that only the BM25
+        retriever surfaced — without this, sparse hits whose dense twin did not
+        make the cut are silently dropped and the "hybrid" retrieval degenerates
+        into re-ranking the dense list.
+
+        Returns
+        -------
+        dict[str, dict]
+            Mapping ``chunk_id -> metadata dict``.  Unknown ids are omitted.
+        """
+        wanted = set(chunk_ids)
+        if not wanted:
+            return {}
+
+        found: dict[str, dict] = {}
+        for meta in self.metadata:
+            cid = self._chunk_id(meta)
+            if cid in wanted and cid not in found:
+                found[cid] = dict(meta)
+        return found
 
     def delete(self, doc_id: str) -> int:
         """Remove all vectors belonging to *doc_id* and rebuild the index.

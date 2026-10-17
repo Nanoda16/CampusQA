@@ -3,7 +3,6 @@
 import os
 import time
 import uuid
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.orm import Session
@@ -15,7 +14,11 @@ from app.schemas.document import (
     DocumentResponse,
     DocumentUpdate,
 )
-from app.services.document_service import DocumentService, IngestionService
+from app.services.document_service import (
+    DocumentService,
+    IngestionService,
+    UPLOAD_DIR as _UPLOAD_DIR,
+)
 from app.services.rag_service import RAGService
 from app.services.user_service import UserService
 from app.routers.user import _get_current_user
@@ -51,7 +54,6 @@ def create_document(
 # ── 上传限制 ──────────────────────────────────────────────
 _ALLOWED_EXTENSIONS = {".pdf", ".doc", ".docx", ".txt"}
 _MAX_FILE_SIZE = 50 * 1024 * 1024  # 50 MB
-_UPLOAD_DIR = Path(__file__).resolve().parent.parent.parent / "uploads"
 
 
 @router.post("/upload", status_code=202)
@@ -205,13 +207,13 @@ def reprocess_document(
     if doc.created_by != user_id and (not current_user or current_user.role != "admin"):
         raise HTTPException(status_code=403, detail="无权限操作此文档")
 
-    # 清空 ai_service 中的旧向量
+    # 清空 ai_service 中的旧向量，但保留知识目录里的文件
     try:
-        RAGService.delete_doc(document_id)
+        RAGService.delete_doc(doc.vector_doc_id or str(doc.id), keep_file=True)
     except Exception:
         pass
 
-    # 重置状态并重新入队
+    # 重置状态并重新入队（vector_doc_id 保留，重新处理时原地重建索引）
     doc.status = DocumentStatus.UPLOADED
     doc.error_message = None
     doc.chunk_count = 0
@@ -231,7 +233,7 @@ def delete_document(
     user_id: int = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
-    """删除文档（软删除）"""
+    """删除文档（同时清理索引和知识目录里的文件）"""
     # 验证权限（仅创建者或管理员可删除）
     current_user = UserService.get_by_id(db, user_id)
     doc = DocumentService.get_by_id(db, document_id)
@@ -240,13 +242,15 @@ def delete_document(
     if doc.created_by != user_id and (not current_user or current_user.role != "admin"):
         raise HTTPException(status_code=403, detail="无权限删除此文档")
 
+    vector_doc_id = doc.vector_doc_id or str(doc.id)
+
     success = DocumentService.soft_delete(db, document_id)
     if not success:
         raise HTTPException(status_code=404, detail="文档不存在")
 
-    # 通知 ai_service 清理工件（fire-and-forget，不阻塞响应）
+    # 通知 ai_service 清理索引条目和知识目录里的文件（fire-and-forget）
     try:
-        RAGService.delete_doc(document_id)
+        RAGService.delete_doc(vector_doc_id)
     except Exception:
         pass
 
@@ -258,42 +262,32 @@ def rebuild_index(
     user_id: int = Depends(_get_current_user),
     db: Session = Depends(get_db),
 ):
-    """重建索引：清空所有向量，从 MySQL 全量文档重新构建索引（仅管理员）"""
+    """重建索引：扫描知识目录全量重建，并把数据库记录对齐到磁盘（仅管理员）
+
+    知识目录是内容的唯一真相。原先这里是从 MySQL 取正文重建，只能索引
+    ``kb_document.content`` 有内容的行（PDF/DOCX 上传时正文是空的），
+    而 ``GET /reindex`` 又只扫目录，两个入口会互相清空对方的内容。
+    现在统一走目录：重建完用返回的清单把 ``kb_document`` 对齐一遍。
+    """
     # 1. 验证管理员权限
     current_user = UserService.get_by_id(db, user_id)
     if not current_user or current_user.role != "admin":
         raise HTTPException(status_code=403, detail="仅管理员可执行重建索引操作")
 
-    # 2. 获取所有文档（不过滤状态）
-    docs = DocumentService.get_all_documents(db)
-    if not docs:
-        return _success(
-            data={"docs_count": 0, "chunks_count": 0, "indexed_count": 0},
-            message="数据库中没有文档",
-        )
-
-    # 3. 构建发送给 ai_service 的文档列表
-    documents = [
-        {
-            "id": doc.id,
-            "title": doc.title or "",
-            "content": doc.content or "",
-            "category": doc.category or "",
-            "source_url": doc.source_url or "",
-        }
-        for doc in docs
-    ]
-
-    # 4. 调用 ai_service /rebuild
+    # 2. 让 ai_service 扫描知识目录重建
     try:
-        result = RAGService.rebuild_index(documents)
+        result = RAGService.rebuild_index_from_directory()
     except Exception as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"AI 服务调用失败: {exc}",
-        )
+        raise HTTPException(status_code=502, detail=f"AI 服务调用失败: {exc}")
+
+    # 3. 把数据库记录对齐到目录扫描结果
+    sync = DocumentService.sync_from_manifest(db, result.get("documents", []))
 
     return _success(
-        data=result,
-        message=f"重建索引完成: {result.get('docs_count', 0)} 篇文档, {result.get('chunks_count', 0)} 个切片",
+        data={**result, "sync": sync},
+        message=(
+            f"重建索引完成: {result.get('docs_count', 0)} 篇文档, "
+            f"{result.get('chunks_count', 0)} 个切片；"
+            f"数据库新增 {sync['created']} / 更新 {sync['updated']} / 删除 {sync['deleted']}"
+        ),
     )

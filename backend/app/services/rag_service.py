@@ -62,8 +62,29 @@ class RAGService:
             return resp.json()
 
     @staticmethod
+    def rebuild_index_from_directory() -> dict:
+        """让 ai_service 扫描知识目录并全量重建索引（同步调用）。
+
+        这是唯一正确的重建方式：知识目录是内容的唯一真相，返回的
+        ``documents`` 清单用于把 ``kb_document`` 对齐到磁盘。
+
+        Returns
+        -------
+        dict
+            ``{"docs_count", "chunks_count", "indexed_count",
+            "time_seconds", "documents"}``。
+        """
+        with httpx.Client(timeout=600) as client:
+            resp = client.get(f"{AI_SERVICE_URL}/reindex")
+            resp.raise_for_status()
+            return resp.json()
+
+    @staticmethod
     def rebuild_index(documents: list[dict]) -> dict:
-        """向 ai_service 发送重建索引请求（同步调用）。
+        """【已废弃】向 ai_service /rebuild 发送数据库行重建索引。
+
+        现在应当使用 :meth:`rebuild_index_from_directory`。保留此方法仅为兼容
+        旧调用，它只能索引数据库里存了正文的行，PDF/DOCX 的行正文是空的。
 
         Parameters
         ----------
@@ -85,8 +106,20 @@ class RAGService:
             return resp.json()
 
     @staticmethod
-    def delete_doc(doc_id: int) -> dict:
-        """通知 ai_service 删除文档工件和向量（同步调用）。"""
-        with httpx.Client(timeout=10) as client:
-            resp = client.delete(f"{AI_SERVICE_URL}/document/{doc_id}")
+    def delete_doc(doc_id: str, keep_file: bool = False) -> dict:
+        """通知 ai_service 删除索引条目（以及知识目录里的文件）。
+
+        Parameters
+        ----------
+        doc_id : str
+            索引里的文档 ID（即 ``kb_document.vector_doc_id``）。
+        keep_file : bool
+            为 ``True`` 时只删索引不删文件——“重新处理”需要这种语义。
+        """
+        with httpx.Client(timeout=30) as client:
+            resp = client.delete(
+                f"{AI_SERVICE_URL}/document/{doc_id}",
+                params={"delete_file": not keep_file},
+            )
+            resp.raise_for_status()
             return resp.json()

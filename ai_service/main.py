@@ -121,31 +121,6 @@ class ProcessResponse(BaseModel):
     persisted_path: str | None = None
 
 
-class RebuildDocument(BaseModel):
-    id: int = Field(..., description="Document ID from MySQL")
-    title: str = Field(default="", description="Document title")
-    content: str = Field(default="", description="Document content")
-    category: str = Field(default="", description="Document category")
-    source_url: str = Field(default="", description="Original source URL")
-
-
-class RebuildRequest(BaseModel):
-    documents: list[RebuildDocument] = Field(
-        ..., description="List of documents to index"
-    )
-
-
-class RebuildResponse(BaseModel):
-    docs_count: int
-    chunks_count: int
-    indexed_count: int
-    time_seconds: float = 0.0
-    documents: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description="Manifest of the indexed files, used to mirror kb_document",
-    )
-
-
 # ---------------------------------------------------------------------------
 # Startup event
 # ---------------------------------------------------------------------------
@@ -233,32 +208,6 @@ async def query_stream(
             yield {"event": "error", "data": _json.dumps({"message": str(exc)})}
 
     return EventSourceResponse(event_generator())
-
-
-# ---------------------------------------------------------------------------
-# Rebuild index from MySQL documents (new)
-# ---------------------------------------------------------------------------
-
-
-@app.post("/rebuild", response_model=RebuildResponse)
-async def rebuild(body: RebuildRequest) -> dict[str, Any]:
-    """Deprecated — rebuild from a list of database rows.
-
-    The index is now rebuilt from the knowledge directory
-    (``GET /reindex``), which is the single source of truth.  This endpoint is
-    kept only for backwards compatibility: it can only index what MySQL happens
-    to hold, and for PDF/DOCX rows the stored content is empty.
-    """
-    try:
-        docs = [d.model_dump() for d in body.documents]
-        if not docs:
-            return {"docs_count": 0, "chunks_count": 0, "indexed_count": 0}
-
-        result = pipeline.rebuild_from_documents(docs)
-        return result
-    except Exception as exc:
-        logger.exception("/rebuild failed")
-        raise HTTPException(status_code=500, detail=str(exc))
 
 
 # ---------------------------------------------------------------------------

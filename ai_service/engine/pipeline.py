@@ -104,9 +104,7 @@ class RAGPipeline:
             self._final_top_k,
         )
 
-        # Auto-rebuild FAISS from artifacts if the index is missing
-        self._check_auto_rebuild()
-        # BM25 is restored separately.  It used to be built only by the
+        # BM25 is restored explicitly.  It used to be built only by the
         # indexing methods, so a process that started with an existing FAISS
         # index never had a sparse index at all and RRF fused the dense
         # ranking with an empty list.
@@ -150,49 +148,6 @@ class RAGPipeline:
             return self.generator.available
         except RuntimeError:
             return False
-
-    # ------------------------------------------------------------------
-    # Auto-rebuild on startup
-    # ------------------------------------------------------------------
-
-    def _check_auto_rebuild(self) -> None:
-        """If ``data/faiss.index`` is missing but artifacts exist, rebuild.
-
-        Scans the artifact directory; if at least one ``.json`` artifact is
-        found and ``faiss.index`` does not exist, calls
-        :meth:`ArtifactStore.rebuild_index` and then reloads the vector
-        store so it reflects the newly-built index.
-        """
-        base_dir = data_root()
-        index_path = os.path.join(base_dir, "faiss.index")
-        artifact_dir = os.path.join(base_dir, "artifacts")
-
-        if os.path.isfile(index_path):
-            return  # Index already exists — nothing to do
-
-        if not os.path.isdir(artifact_dir):
-            return  # No artifact directory yet
-
-        artifacts = [f for f in os.listdir(artifact_dir) if f.endswith(".json")]
-        if not artifacts:
-            return
-
-        logger.info(
-            "FAISS index missing, %d artifact(s) found. Rebuilding index...",
-            len(artifacts),
-        )
-        from .artifact_store import ArtifactStore
-
-        store = ArtifactStore()
-        result = store.rebuild_index()
-        logger.info(
-            "Auto-rebuild complete: %d docs, %d chunks",
-            result.get("docs_count", 0),
-            result.get("chunks_count", 0),
-        )
-
-        # Reload vector store so the newly-built index is available in-memory
-        self.vector_store.load()
 
     # ------------------------------------------------------------------
     # Sparse index persistence
@@ -927,135 +882,12 @@ class RAGPipeline:
         )
         return result
 
-    def rebuild_from_documents(self, documents: list[dict]) -> dict[str, Any]:
-        """Rebuild the entire index from a list of document dicts (no file I/O).
-
-        .. deprecated::
-            A full rebuild now scans the knowledge directory instead — see
-            :meth:`index_documents`.  Rebuilding from database rows only
-            indexed whatever happened to be in ``kb_document.content``, which
-            is empty for PDF/DOCX uploads, and it silently dropped every seed
-            document that had never been inserted into MySQL.  Kept only so
-            existing callers do not break.
-
-        Clears existing artifacts and vector store, then rebuilds from scratch
-        using the provided document data.  Each document is chunked, embedded,
-        and added to a fresh FAISS + BM25 index.
-
-        Parameters
-        ----------
-        documents : list[dict]
-            Each dict must contain ``id``, ``title``, ``content``,
-            ``category``, ``source_url``.
-
-        Returns
-        -------
-        dict
-            ``{"docs_count", "chunks_count", "indexed_count"}``.
-        """
-        t0 = time.time()
-
-        # 1. Convert to the internal doc format expected by chunker
-        docs = []
-        for doc in documents:
-            docs.append(
-                {
-                    "doc_id": str(doc["id"]),
-                    "title": doc.get("title", ""),
-                    "content": doc.get("content", ""),
-                    "category": doc.get("category", ""),
-                    "source_url": doc.get("source_url", ""),
-                }
-            )
-
-        doc_count = len(docs)
-        logger.info("Rebuilding index from %d document(s)", doc_count)
-
-        # Always clear old artifacts + reset vector store + BM25 first
-        import numpy as np
-        from .artifact_store import ArtifactStore
-        store = ArtifactStore()
-        for existing_id in store.list_docs():
-            store.delete_doc(existing_id)
-        self.vector_store.build(
-            np.empty((0, 512), dtype=np.float32), []
-        )
-        self.vector_store.save()
-        self.bm25_retriever.build([], [])
-        self.bm25_retriever.save(self._bm25_dir())
-
-        if doc_count == 0:
-            return {"docs_count": 0, "chunks_count": 0, "indexed_count": 0}
-
-        # 3. Chunk all documents
-        chunks = chunker.chunk_docs(docs)
-        chunk_count = len(chunks)
-        logger.info("Created %d chunk(s)", chunk_count)
-
-        # 4. Save per-document artifacts
-        from collections import defaultdict
-
-        doc_chunks_map: dict[str, list[dict]] = defaultdict(list)
-        for c in chunks:
-            doc_chunks_map[c["doc_id"]].append(c)
-
-        for doc_id, doc_chunks_list in doc_chunks_map.items():
-            doc_info = next((d for d in docs if d["doc_id"] == doc_id), {})
-            store.save_doc(
-                doc_id=doc_id,
-                chunks=doc_chunks_list,
-                title=doc_info.get("title", ""),
-                category=doc_info.get("category", ""),
-                source_url=doc_info.get("source_url", ""),
-            )
-
-        # 5. Embed all chunk texts in a single batch
-        texts = [c["content"] for c in chunks]
-        vectors = embedding.embed(texts)
-
-        # 6. Build parallel metadata list
-        metadata = [
-            {
-                "content": c["content"],
-                "doc_id": c["doc_id"],
-                "chunk_index": c["chunk_index"],
-                "chunk_id": f"{c['doc_id']}_{c['chunk_index']}",
-                "title": c["title"],
-                "category": c["category"],
-                "source_url": c["source_url"],
-            }
-            for c in chunks
-        ]
-
-        # 7. Build / replace the FAISS index and persist
-        self.vector_store.build(vectors, metadata)
-        self.vector_store.save()
-
-        # 8. Build BM25 keyword index in parallel
-        chunk_ids = [m["chunk_id"] for m in metadata]
-        self.bm25_retriever.build(texts, chunk_ids)
-        self.bm25_retriever.save(self._bm25_dir())
-
-        elapsed = time.time() - t0
-        logger.info(
-            "Rebuilt index from %d docs (%d chunks) in %.2fs",
-            doc_count,
-            chunk_count,
-            elapsed,
-        )
-
-        return {
-            "docs_count": doc_count,
-            "chunks_count": chunk_count,
-            "indexed_count": chunk_count,
-        }
-
     # ------------------------------------------------------------------
     # Remove document
     # ------------------------------------------------------------------
 
     def remove_document(self, doc_id: str, delete_file: bool = True) -> dict[str, Any]:
-        """Remove a document from the index, the artifact store and the disk.
+        """Remove a document from the index and (optionally) from disk.
 
         Parameters
         ----------
@@ -1070,14 +902,8 @@ class RAGPipeline:
         Returns
         -------
         dict
-            ``{"artifact_deleted": bool, "vectors_deleted": int,
-            "bm25_deleted": int, "file_deleted": bool}``.
+            ``{"vectors_deleted": int, "bm25_deleted": int, "file_deleted": bool}``.
         """
-        from .artifact_store import ArtifactStore
-
-        store = ArtifactStore()
-        artifact_deleted = store.delete_doc(doc_id)
-
         # Capture the chunk ids (and the on-disk file) before the vectors
         # disappear: they are the only handles left for this document.
         removed_chunk_ids = self.vector_store.chunk_ids_for_doc(doc_id)
@@ -1100,15 +926,13 @@ class RAGPipeline:
                 logger.warning("Could not delete %s: %s", source_file, exc)
 
         logger.info(
-            "Removed document %s (artifact=%s, vectors=%d, bm25=%d, file=%s)",
+            "Removed document %s (vectors=%d, bm25=%d, file=%s)",
             doc_id,
-            artifact_deleted,
             vectors_deleted,
             bm25_deleted,
             file_deleted,
         )
         return {
-            "artifact_deleted": artifact_deleted,
             "vectors_deleted": vectors_deleted,
             "bm25_deleted": bm25_deleted,
             "file_deleted": file_deleted,

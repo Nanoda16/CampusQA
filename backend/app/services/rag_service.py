@@ -80,32 +80,6 @@ class RAGService:
             return resp.json()
 
     @staticmethod
-    def rebuild_index(documents: list[dict]) -> dict:
-        """【已废弃】向 ai_service /rebuild 发送数据库行重建索引。
-
-        现在应当使用 :meth:`rebuild_index_from_directory`。保留此方法仅为兼容
-        旧调用，它只能索引数据库里存了正文的行，PDF/DOCX 的行正文是空的。
-
-        Parameters
-        ----------
-        documents : list[dict]
-            每个 dict 包含 ``id``, ``title``, ``content``, ``category``,
-            ``source_url``。
-
-        Returns
-        -------
-        dict
-            ``{"docs_count", "chunks_count", "indexed_count"}``。
-        """
-        with httpx.Client(timeout=300) as client:
-            resp = client.post(
-                f"{AI_SERVICE_URL}/rebuild",
-                json={"documents": documents},
-            )
-            resp.raise_for_status()
-            return resp.json()
-
-    @staticmethod
     def delete_doc(doc_id: str, keep_file: bool = False) -> dict:
         """通知 ai_service 删除索引条目（以及知识目录里的文件）。
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Card, Table, Tag, Select, Button, Modal, Form, Input, message, Popconfirm } from 'antd';
-import { UserOutlined, PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
+import { Table, Tag, Select, Button, Modal, Form, Input, message, Popconfirm } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, SearchOutlined } from '@ant-design/icons';
 import api from '../services/api';
 
 export default function UserManagement() {
@@ -52,50 +52,176 @@ export default function UserManagement() {
   };
 
   return (
-    <Card className="shadow-sm" title={<><UserOutlined className="mr-2" />人员管理</>} extra={<Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>新增用户</Button>}>
-      <div className="flex flex-wrap gap-3 mb-4">
-        <Input placeholder="搜索用户名/昵称/邮箱" value={keyword} onChange={(e) => setKeyword(e.target.value)} onPressEnter={loadUsers} prefix={<SearchOutlined />} style={{ width: 260 }} allowClear />
-        <Select placeholder="角色筛选" value={filterRole} onChange={(v) => setFilterRole(v)} allowClear style={{ width: 120 }}
-          options={[{ label: '学生', value: 'student' }, { label: '教师', value: 'teacher' }, { label: '管理员', value: 'admin' }]} />
-        <Select placeholder="状态筛选" value={filterStatus} onChange={(v) => setFilterStatus(v)} allowClear style={{ width: 120 }}
-          options={[{ label: '正常', value: 1 }, { label: '已禁用', value: 0 }]} />
-        <Button icon={<SearchOutlined />} onClick={loadUsers}>查询</Button>
+    <div className="space-y-4">
+      <div className="surface p-3 flex flex-wrap items-center gap-2.5">
+        <Input
+          placeholder="搜索用户名 / 昵称 / 邮箱"
+          value={keyword}
+          onChange={(e) => setKeyword(e.target.value)}
+          onPressEnter={loadUsers}
+          prefix={<SearchOutlined className="text-ink-3" />}
+          style={{ width: 260 }}
+          allowClear
+        />
+        <Select
+          placeholder="角色筛选"
+          value={filterRole}
+          onChange={(v) => setFilterRole(v)}
+          allowClear
+          style={{ width: 120 }}
+          options={[
+            { label: '学生', value: 'student' },
+            { label: '教师', value: 'teacher' },
+            { label: '管理员', value: 'admin' },
+          ]}
+        />
+        <Select
+          placeholder="状态筛选"
+          value={filterStatus}
+          onChange={(v) => setFilterStatus(v)}
+          allowClear
+          style={{ width: 120 }}
+          options={[
+            { label: '正常', value: 1 },
+            { label: '已禁用', value: 0 },
+          ]}
+        />
+        <div className="flex-1" />
+        <Button type="primary" icon={<PlusOutlined />} onClick={openCreate}>
+          新增用户
+        </Button>
       </div>
-      <Table rowKey="id" dataSource={users} loading={loading}
-        pagination={{ current: page, total, pageSize: 20, onChange: (p) => setPage(p), showTotal: (t) => `共 ${t} 用户` }}
-        columns={[
-          { title: 'ID', dataIndex: 'id', width: 60 },
-          { title: '用户名', dataIndex: 'username' },
-          { title: '昵称', dataIndex: 'nickname' },
-          { title: '邮箱', dataIndex: 'email' },
-          { title: '角色', dataIndex: 'role', width: 150, render: (role: string, r: any) => (
-            <Select value={role} style={{ width: 100 }} onChange={(v) => updateRole(r.id, v)}
-              options={[{ label: '学生', value: 'student' }, { label: '教师', value: 'teacher' }, { label: '管理员', value: 'admin' }]} />
-          )},
-          { title: '状态', dataIndex: 'status', width: 100, render: (s: number, r: any) => (
-            s === 1 ? <Tag color="success" style={{ cursor: 'pointer' }} onClick={() => toggleStatus(r.id, 0)}>正常</Tag>
-                    : <Tag color="error" style={{ cursor: 'pointer' }} onClick={() => toggleStatus(r.id, 1)}>已禁用</Tag>
-          )},
-          { title: '注册时间', dataIndex: 'created_at', width: 160, render: (d: string) => new Date(d).toLocaleString() },
-          { title: '操作', width: 140, render: (_: any, r: any) => (
-            <div className="flex gap-1">
-              <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>编辑</Button>
-              <Popconfirm title="此操作不可撤销，将永久删除该用户及其所有问答记录" description="确认删除？" onConfirm={() => deleteUser(r.id)} okText="确认删除" okType="danger" cancelText="取消">
-                <Button type="link" danger size="small" icon={<DeleteOutlined />}>删除</Button>
-              </Popconfirm>
-            </div>
-          )},
-        ]} />
-      <Modal title={modalType === 'create' ? '新增用户' : '编辑用户'} open={modalOpen} onCancel={() => setModalOpen(false)} onOk={handleSubmit}
-        okText={modalType === 'create' ? '创建' : '保存'}>
+
+      <div className="surface overflow-hidden">
+        <div className="px-4 pt-4 pb-3 flex items-baseline justify-between border-b border-rule/70">
+          <span className="eyebrow">users</span>
+          <span className="text-[12.5px] text-ink-2">
+            共 <span className="num text-ink-1">{total}</span> 个账号
+          </span>
+        </div>
+        <Table
+          rowKey="id"
+          dataSource={users}
+          loading={loading}
+          pagination={{
+            current: page,
+            total,
+            pageSize: 20,
+            onChange: (p) => setPage(p),
+            showTotal: (t) => `共 ${t} 用户`,
+          }}
+          columns={[
+            { title: 'ID', dataIndex: 'id', width: 60, render: (v: number) => <span className="num text-ink-3">{v}</span> },
+            { title: '用户名', dataIndex: 'username', render: (v: string) => <span className="num text-[13px]">{v}</span> },
+            { title: '昵称', dataIndex: 'nickname' },
+            { title: '邮箱', dataIndex: 'email', render: (v: string) => <span className="text-[12.5px] text-ink-2">{v || '-'}</span> },
+            {
+              title: '角色',
+              dataIndex: 'role',
+              width: 150,
+              render: (role: string, r: any) => (
+                <Select
+                  value={role}
+                  size="small"
+                  style={{ width: 96 }}
+                  onChange={(v) => updateRole(r.id, v)}
+                  options={[
+                    { label: '学生', value: 'student' },
+                    { label: '教师', value: 'teacher' },
+                    { label: '管理员', value: 'admin' },
+                  ]}
+                />
+              ),
+            },
+            {
+              title: '状态',
+              dataIndex: 'status',
+              width: 100,
+              render: (s: number, r: any) =>
+                s === 1 ? (
+                  <Tag
+                    style={{ background: 'var(--ok-wash)', color: 'var(--ok)', borderColor: '#cfe0d6', cursor: 'pointer' }}
+                    onClick={() => toggleStatus(r.id, 0)}
+                  >
+                    正常
+                  </Tag>
+                ) : (
+                  <Tag
+                    style={{ background: '#f6ece9', color: 'var(--danger)', borderColor: '#ecd6cd', cursor: 'pointer' }}
+                    onClick={() => toggleStatus(r.id, 1)}
+                  >
+                    已禁用
+                  </Tag>
+                ),
+            },
+            {
+              title: '注册时间',
+              dataIndex: 'created_at',
+              width: 160,
+              render: (d: string) => <span className="num text-[12px] text-ink-2">{new Date(d).toLocaleString()}</span>,
+            },
+            {
+              title: '操作',
+              width: 140,
+              render: (_: any, r: any) => (
+                <div className="flex gap-1">
+                  <Button type="link" size="small" icon={<EditOutlined />} onClick={() => openEdit(r)}>
+                    编辑
+                  </Button>
+                  <Popconfirm
+                    title="此操作不可撤销，将永久删除该用户及其所有问答记录"
+                    description="确认删除？"
+                    onConfirm={() => deleteUser(r.id)}
+                    okText="确认删除"
+                    okType="danger"
+                    cancelText="取消"
+                  >
+                    <Button type="link" danger size="small" icon={<DeleteOutlined />}>
+                      删除
+                    </Button>
+                  </Popconfirm>
+                </div>
+              ),
+            },
+          ]}
+        />
+      </div>
+
+      <Modal
+        title={modalType === 'create' ? '新增用户' : '编辑用户'}
+        open={modalOpen}
+        onCancel={() => setModalOpen(false)}
+        onOk={handleSubmit}
+        okText={modalType === 'create' ? '创建' : '保存'}
+      >
         <Form form={form} layout="vertical">
-          {modalType === 'create' && <Form.Item label="用户名" name="username" rules={[{ required: true, message: '必填' }]}><Input placeholder="用户名" /></Form.Item>}
-          <Form.Item label="昵称" name="nickname"><Input placeholder="昵称" /></Form.Item>
-          <Form.Item label="邮箱" name="email"><Input placeholder="邮箱" /></Form.Item>
-          {modalType === 'create' && <Form.Item label="角色" name="role" initialValue="student"><Select options={[{ label: '学生', value: 'student' }, { label: '教师', value: 'teacher' }, { label: '管理员', value: 'admin' }]} /></Form.Item>}
-          {modalType === 'create' && <div className="text-xs text-gray-400">默认密码: 123456</div>}
+          {modalType === 'create' && (
+            <Form.Item label="用户名" name="username" rules={[{ required: true, message: '必填' }]}>
+              <Input placeholder="用户名" />
+            </Form.Item>
+          )}
+          <Form.Item label="昵称" name="nickname">
+            <Input placeholder="昵称" />
+          </Form.Item>
+          <Form.Item label="邮箱" name="email">
+            <Input placeholder="邮箱" />
+          </Form.Item>
+          {modalType === 'create' && (
+            <Form.Item label="角色" name="role" initialValue="student">
+              <Select
+                options={[
+                  { label: '学生', value: 'student' },
+                  { label: '教师', value: 'teacher' },
+                  { label: '管理员', value: 'admin' },
+                ]}
+              />
+            </Form.Item>
+          )}
+          {modalType === 'create' && (
+            <div className="text-[11.5px] text-ink-3">默认密码 123456，创建后可让用户自行修改</div>
+          )}
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 }

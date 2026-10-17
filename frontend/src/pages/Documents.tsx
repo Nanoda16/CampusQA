@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Card, Table, Button, Input, Tag, Modal, Form, Select, message,
+  Table, Button, Input, Tag, Modal, Form, Select, message,
   Space, Popconfirm, Upload,
 } from 'antd';
 import {
@@ -244,7 +244,7 @@ export default function Documents() {
       dataIndex: 'title',
       render: (t: string) => (
         <Space>
-          <FileTextOutlined className="text-blue-500" />
+          <FileTextOutlined className="text-accent/70" />
           <span className="font-medium">{t}</span>
         </Space>
       ),
@@ -253,7 +253,14 @@ export default function Documents() {
       title: '分类',
       dataIndex: 'category',
       width: 110,
-      render: (c: string) => (c ? <Tag color="blue">{c}</Tag> : '-'),
+      render: (c: string) =>
+        c ? (
+          <Tag style={{ background: '#f6f1e6', color: 'var(--ink-2)', borderColor: 'var(--rule)' }}>
+            {c}
+          </Tag>
+        ) : (
+          '-'
+        ),
     },
     {
       title: '部门',
@@ -317,14 +324,14 @@ export default function Documents() {
 
   /* ---- render ---- */
   return (
-    <Card className="shadow-sm" title="知识库文档管理">
+    <div className="space-y-4">
       {/* Toolbar */}
-      <div className="flex flex-wrap gap-3 mb-4">
+      <div className="surface p-3 flex flex-wrap items-center gap-2.5">
         <Input
           placeholder="搜索标题"
           value={keyword}
           onChange={(e) => setKeyword(e.target.value)}
-          prefix={<SearchOutlined />}
+          prefix={<SearchOutlined className="text-ink-3" />}
           style={{ width: 240 }}
           allowClear
         />
@@ -336,6 +343,8 @@ export default function Documents() {
           style={{ width: 160 }}
           options={categories.map((c) => ({ label: c, value: c }))}
         />
+
+        <div className="flex-1" />
 
         {/* File upload — primary action. accept lists real extensions so Windows dialog shows all supported types (bare "*" is invalid and breaks the picker). */}
         <Upload
@@ -369,18 +378,46 @@ export default function Documents() {
       </div>
 
       {/* Table */}
-      <Table
-        rowKey="id"
-        columns={columns}
-        dataSource={documents}
-        loading={loading}
-        pagination={{
-          ...pagination,
-          showSizeChanger: true,
-          showTotal: (t) => `共 ${t} 条`,
-          onChange: (p, ps) => setPagination({ current: p, pageSize: ps, total: pagination.total }),
-        }}
-      />
+      <div className="surface overflow-hidden">
+        <div className="px-4 pt-4 pb-3 flex items-baseline justify-between border-b border-rule/70">
+          <div className="flex items-baseline gap-3">
+            <span className="eyebrow">corpus</span>
+            <span className="text-[13px] text-ink-2">
+              共 <span className="num text-ink-1">{pagination.total}</span> 篇
+            </span>
+          </div>
+          <span className="num text-[10.5px] text-ink-3">
+            knowledge_docs / reindex
+          </span>
+        </div>
+        <Table
+          rowKey="id"
+          columns={columns}
+          dataSource={documents}
+          loading={loading}
+          locale={{
+            emptyText: (
+              <div className="py-12 px-4">
+                <div className="mx-auto w-10 h-10 rounded-[10px] bg-accent-wash border border-[#ecd6cd] grid place-items-center text-accent">
+                  <FileTextOutlined />
+                </div>
+                <p className="mt-4 text-[13.5px] text-ink-1 font-medium">知识库还是空的</p>
+                <p className="mt-1.5 mx-auto max-w-[420px] text-[12.5px] text-ink-3 leading-relaxed">
+                  上传 pdf / word / txt，或者把文本文件放进{' '}
+                  <span className="num text-ink-2">knowledge_docs/</span> 目录，
+                  然后点「重建索引」。
+                </p>
+              </div>
+            ),
+          }}
+          pagination={{
+            ...pagination,
+            showSizeChanger: true,
+            showTotal: (t) => `共 ${t} 条`,
+            onChange: (p, ps) => setPagination({ current: p, pageSize: ps, total: pagination.total }),
+          }}
+        />
+      </div>
 
       {/* Create / Edit modal */}
       <Modal
@@ -410,6 +447,6 @@ export default function Documents() {
           </Form.Item>
         </Form>
       </Modal>
-    </Card>
+    </div>
   );
 }

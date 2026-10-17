@@ -120,7 +120,7 @@ ai_service/data/bm25/           关键词索引
 | 融合算法 | RRF (Reciprocal Rank Fusion, k=60) |
 | 重排序 | BGE-reranker-base（可选开关） |
 | 生成模型 | DeepSeek API（可替换为 OpenAI / 千问 等） |
-| 前端 | React 18 + TypeScript + Vite + Ant Design + Tailwind CSS |
+| 前端 | React 19 + TypeScript + Vite + Ant Design + Tailwind CSS |
 
 ---
 

@@ -2,32 +2,248 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ==========================================================================
+   设计令牌 —— 「阅览室 / 索引卡」
+   暖纸底、墨色字、单一朱砂批注色。层次靠纸面深浅与发丝线，不靠整块纯色。
+   ========================================================================== */
+:root {
+  /* 纸面三层 */
+  --paper-0: #f6f2e9; /* 画布 */
+  --paper-1: #fbf8f1; /* 侧栏 / 次级面 */
+  --paper-2: #ffffff; /* 卡片 / 主面 */
+
+  /* 墨色三层 */
+  --ink-1: #1c1b17;
+  --ink-2: #55504a;
+  --ink-3: #746d61;
+
+  /* 分隔 */
+  --rule: #e4ddce;
+  --rule-2: #d3c9b7;
+
+  /* 朱砂批注色（唯一的强调色） */
+  --accent: #a63d2f;
+  --accent-strong: #8a3025;
+  --accent-wash: #f5e5de;
+
+  /* 语义色 */
+  --ok: #41694f;
+  --ok-wash: #e6efe8;
+  --warn: #a87616;
+  --warn-wash: #f7efdd;
+  --danger: #a33128;
+
+  /* 阴影：三层，越靠近内容越紧 */
+  --shadow-1:
+    0 1px 2px rgba(28, 27, 23, 0.05), 0 1px 1px rgba(28, 27, 23, 0.03);
+  --shadow-2:
+    0 1px 2px rgba(28, 27, 23, 0.05), 0 10px 24px -14px rgba(28, 27, 23, 0.18);
+  --shadow-3:
+    0 2px 4px rgba(28, 27, 23, 0.06), 0 18px 40px -20px rgba(28, 27, 23, 0.22);
+
+  /* 圆角刻度 */
+  --r-1: 4px;
+  --r-2: 8px;
+  --r-3: 12px;
+
+  /* 动效 */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  --dur: 180ms;
+
+  --font-sans:
+    'PingFang SC', 'HarmonyOS Sans SC', 'Source Han Sans SC', 'Noto Sans SC',
+    'Microsoft YaHei UI', 'Microsoft YaHei', system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+  --font-mono:
+    'Cascadia Mono', 'SF Mono', 'JetBrains Mono', 'Consolas', ui-monospace,
+    monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-    'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+  background: var(--paper-0);
+  color: var(--ink-1);
+  font-family: var(--font-sans);
+  font-size: 14px;
+  line-height: 1.6;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #f4f6f9;
-  color: #132f54;
+  text-rendering: optimizeLegibility;
 }
 
-#root {
-  min-height: 100vh;
+/* 中文正文不做标题式紧排，标题单独收紧字距 */
+h1,
+h2,
+h3,
+h4 {
+  margin: 0;
+  letter-spacing: -0.011em;
+  text-wrap: balance;
 }
 
-/* Custom scrollbar */
+p {
+  text-wrap: pretty;
+}
+
+::selection {
+  background: var(--accent-wash);
+  color: var(--ink-1);
+}
+
+/* 焦点环：始终可见，且与主题同色 */
+:where(button, a, input, textarea, select, [tabindex]):focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--r-1);
+}
+
+/* 滚动条：发丝级 */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--rule-2) transparent;
+}
 ::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
+  width: 8px;
+  height: 8px;
 }
 ::-webkit-scrollbar-track {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: #adc7e6;
-  border-radius: 3px;
+  background: var(--rule-2);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: #7ea7d6;
+  background: var(--ink-3);
+  background-clip: content-box;
+}
+
+/* ==========================================================================
+   可复用表面与排版
+   ========================================================================== */
+@layer components {
+  /* 主卡片面 */
+  .surface {
+    background: var(--paper-2);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-3);
+    box-shadow: var(--shadow-2);
+  }
+
+  /* 次级面（侧栏、消息、提示条） */
+  .surface-sub {
+    background: var(--paper-1);
+    border: 1px solid var(--rule);
+    border-radius: var(--r-3);
+  }
+
+  /* 发丝分隔线 */
+  .rule-t {
+    border-top: 1px solid var(--rule);
+  }
+  .rule-b {
+    border-bottom: 1px solid var(--rule);
+  }
+
+  /* 小号等宽标签：用于分区眉题、编号、数据 */
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 10px;
+    line-height: 1;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--ink-3);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* 数字统一等宽对齐 */
+  .num {
+    font-family: var(--font-mono);
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+
+  /* 会话/列表行：安静的行，选中靠面 + 圆点，不靠整块加深 */
+  .row-quiet {
+    position: relative;
+    border-radius: var(--r-2);
+    transition:
+      background-color var(--dur) var(--ease),
+      box-shadow var(--dur) var(--ease);
+  }
+  @media (hover: hover) {
+    .row-quiet:hover {
+      background: var(--paper-2);
+    }
+  }
+  .row-quiet[data-active='true'] {
+    background: var(--paper-2);
+    box-shadow: var(--shadow-1);
+  }
+  .row-quiet[data-active='true']::before {
+    content: '';
+    position: absolute;
+    left: 2px;
+    top: 50%;
+    width: 5px;
+    height: 5px;
+    margin-top: -2.5px;
+    border-radius: 999px;
+    background: var(--accent);
+  }
+}
+
+/* 减少动效偏好 */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+
+/* antd 细节对齐：去掉默认的重阴影与圆角漂移 */
+.ant-btn {
+  transition:
+    transform var(--dur) var(--ease),
+    background-color var(--dur) var(--ease),
+    border-color var(--dur) var(--ease),
+    color var(--dur) var(--ease);
+}
+.ant-btn:active {
+  transform: scale(0.98);
+}
+.ant-card {
+  box-shadow: none;
+}
+.ant-tag {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.02em;
+  border-radius: var(--r-1);
+}
+.ant-table-thead > tr > th {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-weight: 500 !important;
+}
+.ant-empty-description {
+  color: var(--ink-3);
 }

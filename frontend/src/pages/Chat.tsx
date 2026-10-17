@@ -1,28 +1,16 @@
 import { useState, useEffect, useRef } from 'react';
 import { flushSync } from 'react-dom';
-import {
-  Card,
-  Input,
-  Button,
-  List,
-  Tag,
-  message,
-  Spin,
-  Empty,
-  Tooltip,
-  Avatar,
-  Badge,
-  Space,
-} from 'antd';
+import { Input, Button, message, Tooltip, Tag } from 'antd';
 import {
   SendOutlined,
   PlusOutlined,
   DeleteOutlined,
   LikeOutlined,
   DislikeOutlined,
-  RobotOutlined,
-  UserOutlined,
-  FireOutlined, DownOutlined, PaperClipOutlined, StopOutlined,
+  StopOutlined,
+  DownOutlined,
+  PaperClipOutlined,
+  BulbOutlined,
 } from '@ant-design/icons';
 import api from '../services/api';
 import SourceCards from '../components/SourceCards';
@@ -47,6 +35,12 @@ interface Session {
   updated_at: string;
 }
 
+const SUGGESTIONS = [
+  '河海大学是哪一年创办的？',
+  '图书馆的开放时间是什么时候？',
+  '计算机学院的本科专业有哪些？',
+];
+
 export default function Chat() {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
@@ -56,8 +50,7 @@ export default function Chat() {
   const [hotQuestions, setHotQuestions] = useState<{ question: string; count: number }[]>([]);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const user = JSON.parse(localStorage.getItem('user') || 'null');
-  const [isRagMode, setIsRagMode] = useState(true); // RAG 模式默认开启
+  const [isRagMode, setIsRagMode] = useState(true);
   const [expandedSources, setExpandedSources] = useState<Set<number>>(new Set());
 
   const generateSessionId = () => 'session-' + Date.now();
@@ -82,7 +75,7 @@ export default function Chat() {
 
   const loadHotQuestions = async () => {
     try {
-      const res: any = await api.get('/qa/hot?limit=10');
+      const res: any = await api.get('/qa/hot?limit=6');
       if (res.code === 200) {
         setHotQuestions(res.data.questions || []);
       }
@@ -169,7 +162,7 @@ export default function Chat() {
             // Insert an empty AI message placeholder to fill as tokens arrive
             setMessages((prev) => [
               ...prev,
-              { id: aiMsgId, role: 'ai', content: '正在检索知识库...', isRAG: true, recordId },
+              { id: aiMsgId, role: 'ai', content: '', isRAG: true, recordId },
             ]);
 
             const controller = new AbortController();
@@ -312,7 +305,7 @@ export default function Chat() {
       await api.post(`/qa/feedback?record_id=${recordId}&feedback=${feedback}`);
       message.success('反馈已提交');
       setMessages((prev) =>
-        prev.map((m) => (m.recordId === recordId ? { ...m, feedback } : m))
+        prev.map((m) => (m.recordId === recordId ? { ...m, feedback } : m)),
       );
     } catch (e) {}
   };
@@ -329,228 +322,337 @@ export default function Chat() {
     } catch (e) {}
   };
 
+  const suggestions = hotQuestions.length
+    ? hotQuestions.slice(0, 3).map((q) => q.question)
+    : SUGGESTIONS;
+
   return (
-    <div className="flex gap-6 h-[calc(100vh-120px)]">
-      {/* Left Sidebar */}
-      <Card className="w-72 flex-shrink-0 flex flex-col shadow-sm" bodyStyle={{ padding: 16, height: '100%' }}>
-        <Button
-          type="primary"
-          icon={<PlusOutlined />}
-          block
-          onClick={createNewSession}
-          className="mb-4"
-        >
-          新会话
-        </Button>
+    <div className="grid grid-cols-1 lg:grid-cols-[260px_minmax(0,1fr)] gap-5 h-[calc(100dvh-136px)] min-h-[540px]">
+      {/* ── 会话索引栏 ─────────────────────────────────────────── */}
+      <aside className="hidden lg:flex flex-col min-w-0 surface-sub overflow-hidden">
+        <div className="p-3">
+          <Button
+            type="primary"
+            icon={<PlusOutlined />}
+            block
+            onClick={createNewSession}
+          >
+            新会话
+          </Button>
+        </div>
 
-        <div className="text-sm font-medium text-gray-700 mb-2">历史会话</div>
-        <div className="flex-1 overflow-auto">
+        <div className="px-4 pt-1 pb-2 flex items-center justify-between">
+          <span className="eyebrow">history</span>
+          <span className="num text-[10.5px] text-ink-3">{sessions.length}</span>
+        </div>
+
+        <div className="flex-1 overflow-auto px-2 pb-2">
           {sessions.length === 0 ? (
-            <Empty description="暂无会话" image={Empty.PRESENTED_IMAGE_SIMPLE} />
-          ) : (
-            <List
-              dataSource={sessions}
-              renderItem={(s) => (
-                <List.Item
-                  className={`cursor-pointer rounded-lg px-3 py-2 mb-1 transition-colors ${
-                    s.session_id === currentSession ? 'bg-brand-50 border border-brand-100' : 'hover:bg-slate-50 border border-transparent'
-                  }`}
-                  onClick={() => loadSessionMessages(s.session_id)}
-                  actions={[
-                    <Tooltip title="删除会话">
-                      <DeleteOutlined
-                        className="text-gray-400 hover:text-red-500"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          deleteSession(s.session_id);
-                        }}
-                      />
-                    </Tooltip>,
-                  ]}
-                >
-                  <div className="overflow-hidden">
-                    <div className="text-sm truncate font-medium text-gray-800">
-                      {s.last_question || '新会话'}
-                    </div>
-                    <div className="text-xs text-gray-400">
-                      {s.question_count} 条消息{(() => {
-                        const d = new Date(s.updated_at);
-                        return isNaN(d.getTime()) ? '' : ' · ' + d.toLocaleString();
-                      })()}
-                    </div>
-                  </div>
-                </List.Item>
-              )}
-            />
-          )}
-        </div>
-
-        <div className="mt-4 pt-4 border-t border-gray-100">
-          <div className="text-sm font-medium text-gray-700 mb-2">
-            <FireOutlined className="text-orange-500 mr-1" />
-            热门问题
-          </div>
-          <div className="space-y-1">
-            {hotQuestions.map((q, i) => (
-              <div
-                key={i}
-                className="text-xs text-gray-500 hover:text-blue-600 cursor-pointer truncate"
-                onClick={() => setInput(q.question)}
-              >
-                {q.question}
-                <Badge count={q.count} style={{ backgroundColor: '#1f4d8a', marginLeft: 6 }} />
-              </div>
-            ))}
-          </div>
-        </div>
-      </Card>
-
-      {/* Chat Area */}
-      <Card className="flex-1 flex flex-col shadow-sm" bodyStyle={{ padding: 0, height: '100%', display: 'flex', flexDirection: 'column' }}>
-        {/* Header */}
-        <div className="px-6 py-3 border-b border-gray-100 flex items-center justify-between">
-          <div>
-            <span className="font-medium text-gray-800">
-              {currentSession ? '当前会话' : '新会话'}
-            </span>
-            {currentSession && (
-              <Tag className="ml-2 text-xs">{currentSession.slice(-8)}</Tag>
-            )}
-          </div>
-          <Avatar icon={<UserOutlined />} size="small" /> {user?.nickname || user?.username}
-        </div>
-
-        {/* Messages */}
-        <div className="flex-1 overflow-auto p-6 space-y-4">
-          {messages.length === 0 ? (
-            <div className="h-full flex items-center justify-center">
-              <Empty
-                description="开始提问吧"
-                image={Empty.PRESENTED_IMAGE_SIMPLE}
-              />
+            <div className="px-3 py-6">
+              <p className="text-[12.5px] text-ink-3 leading-relaxed">
+                还没有历史会话。提一个问题，这里会留下记录。
+              </p>
             </div>
           ) : (
-            messages.map((m) => (
-              <div
-                key={m.id}
-                className={`flex gap-3 ${m.role === 'user' ? 'flex-row-reverse' : ''}`}
-              >
-                <Avatar
-                  icon={m.role === 'user' ? <UserOutlined /> : <RobotOutlined />}
-                  className={m.role === 'ai' ? 'bg-brand-700' : 'bg-slate-300'}
-                />
-                <div
-                  className={`max-w-[70%] rounded-xl px-4 py-3 text-sm leading-relaxed ${
-                    m.role === 'user'
-                      ? 'bg-brand-600 text-white rounded-tr-sm'
-                      : 'bg-white border border-slate-200 rounded-tl-sm'
-                  }`}
-                >
-                  <div>{m.content}</div>
-                  {m.role === 'ai' && (
-                    <div className="mt-2 flex items-center gap-2">
-                      {m.isRAG && (
-                        <Tag color="blue" className="text-xs">RAG</Tag>
-                      )}
-                      {m.fromCache && (
-                        <Tag color="green" className="text-xs">命中缓存</Tag>
-                      )}
-                      {m.recordId && (
-                        <Space size="small">
-                          <Tooltip title="有用">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<LikeOutlined className={m.feedback === 1 ? 'text-blue-500' : ''} />}
-                              onClick={() => submitFeedback(m.recordId!, 1)}
-                            />
-                          </Tooltip>
-                          <Tooltip title="无用">
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={<DislikeOutlined className={m.feedback === 2 ? 'text-red-500' : ''} />}
-                              onClick={() => submitFeedback(m.recordId!, 2)}
-                            />
-                          </Tooltip>
-                        </Space>
-                      )}
-                    </div>
-                  )}
-                  {m.sources && m.sources.length > 0 && (
-                    <div className="mt-3 border-t border-gray-100 pt-2">
-                      <div
-                        className="flex items-center gap-1.5 cursor-pointer text-xs text-gray-500 hover:text-blue-600 transition-colors"
-                        onClick={() => toggleSources(m.id)}
-                      >
-                        <PaperClipOutlined className="text-gray-400" />
-                        <span>关于来源</span>
-                        <Tag className="text-xs ml-0.5" color="default">{m.sources.length}</Tag>
-                        <DownOutlined
-                          className={`text-[10px] text-gray-400 transition-transform duration-200 ${
-                            expandedSources.has(m.id) ? 'rotate-180' : ''
+            <ul className="space-y-0.5">
+              {sessions.map((s) => {
+                const active = s.session_id === currentSession;
+                return (
+                  <li key={s.session_id}>
+                    <div
+                      data-active={active}
+                      className="row-quiet group flex items-start gap-2 pl-4 pr-1.5 py-2 cursor-pointer"
+                      onClick={() => loadSessionMessages(s.session_id)}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <div
+                          className={`text-[12.5px] truncate leading-snug ${
+                            active ? 'text-ink-1 font-medium' : 'text-ink-2'
                           }`}
-                        />
+                        >
+                          {s.last_question || '新会话'}
+                        </div>
+                        <div className="num mt-1 text-[10px] text-ink-3 truncate">
+                          {s.question_count} 条
+                          {(() => {
+                            const d = new Date(s.updated_at);
+                            return isNaN(d.getTime())
+                              ? ''
+                              : ' · ' +
+                                  d.toLocaleDateString(undefined, {
+                                    month: '2-digit',
+                                    day: '2-digit',
+                                  });
+                          })()}
+                        </div>
                       </div>
-                      {expandedSources.has(m.id) && (
-                        <SourceCards sources={m.sources} />
+                      <Tooltip title="删除会话">
+                        <button
+                          aria-label="删除会话"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deleteSession(s.session_id);
+                          }}
+                          className="grid place-items-center w-6 h-6 shrink-0 rounded-r1 text-ink-3 opacity-0 group-hover:opacity-100 hover:text-danger focus-visible:opacity-100 transition-opacity duration-150"
+                        >
+                          <DeleteOutlined className="text-[11px]" />
+                        </button>
+                      </Tooltip>
+                    </div>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
+        <div className="border-t border-rule px-3 py-3">
+          <div className="flex items-center gap-1.5 pb-2">
+            <BulbOutlined className="text-[11px] text-accent" />
+            <span className="eyebrow">frequent</span>
+          </div>
+          {hotQuestions.length === 0 ? (
+            <p className="text-[11.5px] text-ink-3 leading-relaxed">暂无热门问题</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {hotQuestions.map((q, i) => (
+                <li key={i}>
+                  <button
+                    onClick={() => setInput(q.question)}
+                    className="w-full text-left flex items-baseline gap-2 text-[11.5px] text-ink-2 hover:text-accent transition-colors duration-150"
+                  >
+                    <span className="num text-[10px] text-ink-3 shrink-0 w-3">{i + 1}</span>
+                    <span className="truncate">{q.question}</span>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </aside>
+
+      {/* ── 对话主面 ───────────────────────────────────────────── */}
+      <section className="surface flex flex-col min-w-0 min-h-0 overflow-hidden">
+        {/* 会话头 */}
+        <div className="h-12 shrink-0 px-4 md:px-5 flex items-center justify-between gap-3 border-b border-rule">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <span className="eyebrow shrink-0">session</span>
+            <span className="num text-[11px] text-ink-3 truncate">
+              {currentSession ? currentSession.slice(-8) : '未开始'}
+            </span>
+          </div>
+          <div className="flex items-center gap-2 shrink-0">
+            <Tag
+              className="!m-0"
+              color={isRagMode ? 'default' : 'default'}
+              style={
+                isRagMode
+                  ? { background: 'var(--accent-wash)', color: 'var(--accent-strong)', borderColor: '#ecd6cd' }
+                  : undefined
+              }
+            >
+              {isRagMode ? 'RAG' : '直答'}
+            </Tag>
+            <button
+              onClick={createNewSession}
+              className="lg:hidden text-[12px] text-ink-2 hover:text-accent transition-colors"
+            >
+              新会话
+            </button>
+          </div>
+        </div>
+
+        {/* 消息流 */}
+        <div className="flex-1 min-h-0 overflow-auto px-4 md:px-6 py-5">
+          {messages.length === 0 ? (
+            <div className="h-full flex flex-col items-center justify-center text-center px-2">
+              <span className="grid place-items-center w-11 h-11 rounded-[12px] bg-accent-wash text-accent border border-[#ecd6cd] text-[17px] font-semibold">
+                问
+              </span>
+              <h2 className="mt-5 text-[19px] font-semibold tracking-tight">
+                想问点什么
+              </h2>
+              <p className="mt-2 text-[13px] text-ink-3 max-w-[380px] leading-relaxed">
+                回答会引用知识库里的原文。知识库为空时先去「知识库文档」上传资料。
+              </p>
+              <div className="mt-6 w-full max-w-[520px] space-y-2">
+                {suggestions.map((s, i) => (
+                  <button
+                    key={i}
+                    onClick={() => setInput(s)}
+                    className="w-full text-left px-4 py-2.5 rounded-r2 border border-rule bg-paper-1 hover:bg-paper-2 hover:border-rule-strong transition-colors duration-150 text-[13px] text-ink-2 hover:text-ink-1"
+                  >
+                    <span className="num text-[10px] text-ink-3 mr-2">
+                      {String(i + 1).padStart(2, '0')}
+                    </span>
+                    {s}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ) : (
+            <div className="space-y-5">
+              {messages.map((m) =>
+                m.role === 'user' ? (
+                  <div key={m.id} className="flex justify-end">
+                    <div className="max-w-[78%] md:max-w-[70%]">
+                      <div className="eyebrow text-right mb-1.5">you</div>
+                      <div className="rounded-r3 rounded-tr-r1 bg-accent-wash text-ink-1 px-4 py-2.5 text-[13.5px] leading-[1.75] border border-[#ecd6cd]">
+                        {m.content}
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={m.id} className="flex justify-start">
+                    <div className="max-w-[86%] md:max-w-[78%] w-full">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="eyebrow">assistant</span>
+                        {m.isRAG && (
+                          <span className="num text-[10px] text-ink-3">rag</span>
+                        )}
+                        {m.fromCache && (
+                          <span className="num text-[10px] text-ok">cache</span>
+                        )}
+                      </div>
+
+                      <div className="rounded-r3 rounded-tl-r1 bg-paper-1 border border-rule px-4 py-3 text-[13.5px] leading-[1.8] text-ink-1 whitespace-pre-wrap break-words">
+                        {m.content || (
+                          <span className="inline-flex items-center gap-1.5 text-ink-3">
+                            <span className="w-1 h-1 rounded-full bg-ink-3 animate-pulse" />
+                            <span
+                              className="w-1 h-1 rounded-full bg-ink-3 animate-pulse"
+                              style={{ animationDelay: '120ms' }}
+                            />
+                            <span
+                              className="w-1 h-1 rounded-full bg-ink-3 animate-pulse"
+                              style={{ animationDelay: '240ms' }}
+                            />
+                            <span className="ml-1 text-[12px]">检索中</span>
+                          </span>
+                        )}
+                      </div>
+
+                      {/* 元操作 */}
+                      <div className="mt-1.5 flex items-center gap-1.5 text-ink-3">
+                        {m.recordId && (
+                          <>
+                            <Tooltip title="回答有用">
+                              <button
+                                aria-label="回答有用"
+                                onClick={() => submitFeedback(m.recordId!, 1)}
+                                className={`grid place-items-center w-7 h-7 rounded-r1 hover:bg-paper-1 transition-colors ${
+                                  m.feedback === 1 ? 'text-accent' : ''
+                                }`}
+                              >
+                                <LikeOutlined className="text-[12px]" />
+                              </button>
+                            </Tooltip>
+                            <Tooltip title="回答没用">
+                              <button
+                                aria-label="回答没用"
+                                onClick={() => submitFeedback(m.recordId!, 2)}
+                                className={`grid place-items-center w-7 h-7 rounded-r1 hover:bg-paper-1 transition-colors ${
+                                  m.feedback === 2 ? 'text-danger' : ''
+                                }`}
+                              >
+                                <DislikeOutlined className="text-[12px]" />
+                              </button>
+                            </Tooltip>
+                          </>
+                        )}
+
+                        {m.sources && m.sources.length > 0 && (
+                          <button
+                            onClick={() => toggleSources(m.id)}
+                            aria-expanded={expandedSources.has(m.id)}
+                            className="ml-1 inline-flex items-center gap-1.5 h-7 px-2 rounded-r1 text-[11.5px] text-ink-2 hover:bg-paper-1 hover:text-ink-1 transition-colors"
+                          >
+                            <PaperClipOutlined className="text-[11px]" />
+                            <span>来源</span>
+                            <span className="num text-[10px] text-ink-3">
+                              {m.sources.length}
+                            </span>
+                            <DownOutlined
+                              className={`text-[9px] transition-transform duration-200 ${
+                                expandedSources.has(m.id) ? 'rotate-180' : ''
+                              }`}
+                            />
+                          </button>
+                        )}
+                      </div>
+
+                      {m.sources && m.sources.length > 0 && expandedSources.has(m.id) && (
+                        <div className="mt-1 pl-1">
+                          <SourceCards sources={m.sources} />
+                        </div>
                       )}
                     </div>
-                  )}
-                </div>
-              </div>
-            ))
-          )}
-          {loading && messages[messages.length - 1]?.role === 'user' && (
-            <div className="flex gap-3">
-              <Avatar icon={<RobotOutlined />} className="bg-brand-700" />
-              <div className="bg-white border border-slate-200 rounded-xl rounded-tl-sm px-4 py-3">
-                <Spin size="small" />
-              </div>
+                  </div>
+                ),
+              )}
             </div>
           )}
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Input */}
-        <div className="p-4 border-t border-gray-100 bg-white">
-          <div className="flex gap-3">
+        {/* 输入区 */}
+        <div className="shrink-0 border-t border-rule p-3 md:p-4">
+          <div className="rounded-r3 border border-rule bg-paper-2 focus-within:border-rule-strong transition-colors duration-150">
             <Input.TextArea
               value={input}
               onChange={(e) => setInput(e.target.value)}
-              placeholder="输入关于河海大学的问题，例如：河海大学是哪一年创办的？"
-              autoSize={{ minRows: 1, maxRows: 4 }}
+              placeholder="输入关于河海大学的问题…"
+              autoSize={{ minRows: 1, maxRows: 5 }}
+              variant="borderless"
               onPressEnter={(e) => {
                 if (!e.shiftKey) {
                   e.preventDefault();
                   sendMessage();
                 }
               }}
-              className="flex-1"
+              className="!px-3.5 !py-3 !text-[13.5px]"
             />
-            <Button
-              type={isRagMode ? 'primary' : 'default'}
-              icon={<PaperClipOutlined />}
-              onClick={() => setIsRagMode(!isRagMode)}
-            >
-              {isRagMode ? 'RAG已开启' : 'RAG问答'}
-            </Button>
-            {loading ? (
-              <Button danger icon={<StopOutlined />} onClick={stopGeneration}>
-                停止生成
-              </Button>
-            ) : (
-              <Button
-                type="primary"
-                icon={<SendOutlined />}
-                onClick={sendMessage}
-              >
-                发送
-              </Button>
-            )}
+            <div className="flex items-center justify-between px-2.5 pb-2.5">
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setIsRagMode(!isRagMode)}
+                  aria-pressed={isRagMode}
+                  className={`inline-flex items-center gap-1.5 h-7 px-2.5 rounded-full text-[11.5px] border transition-colors duration-150 ${
+                    isRagMode
+                      ? 'bg-accent-wash text-accent-strong border-[#ecd6cd]'
+                      : 'bg-paper-1 text-ink-3 border-rule'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full ${
+                      isRagMode ? 'bg-accent' : 'bg-ink-3'
+                    }`}
+                  />
+                  检索增强
+                </button>
+                <span className="hidden sm:inline num text-[10px] text-ink-3">
+                  Enter 发送 · Shift+Enter 换行
+                </span>
+              </div>
+
+              {loading ? (
+                <Button danger icon={<StopOutlined />} onClick={stopGeneration}>
+                  停止
+                </Button>
+              ) : (
+                <Button
+                  type="primary"
+                  icon={<SendOutlined />}
+                  onClick={sendMessage}
+                  disabled={!input.trim()}
+                >
+                  发送
+                </Button>
+              )}
+            </div>
           </div>
         </div>
-      </Card>
+      </section>
     </div>
   );
 }

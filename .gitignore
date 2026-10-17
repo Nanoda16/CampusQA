@@ -62,6 +62,10 @@ data/uploads/
 knowledge_docs/*
 !knowledge_docs/.gitkeep
 
+# 开发期产物：测试、评测、发布资源、临时脚本清单
+# 这些属于开发证据，不随项目分发；说明见 _dev/README.txt
+_dev/
+
 # Logs
 *.log
 logs/

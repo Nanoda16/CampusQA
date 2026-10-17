@@ -1,21 +1,54 @@
 """FastAPI 应用入口"""
 
+import logging
 import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.responses import HTMLResponse, FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy.exc import SQLAlchemyError
 
 from app.config import settings
 from app.database import init_db
 from app.routers import admin_router, ai_router, document_router, qa_router, user_router
 from app.redis_client import redis_client as _  # Redis pre-init
 
+logger = logging.getLogger(__name__)
+
 app = FastAPI(title="CampusQA", version="1.0.0", docs_url="/docs", redoc_url="/redoc")
 
 app.add_middleware(CORSMiddleware, allow_origins=settings.CORS_ORIGINS, allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
+
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    """把未预期的异常翻译成普通用户看得懂的中文提示。
+
+    FastAPI 默认只返回 "Internal Server Error"，前端弹出来就是
+    "Request failed with status code 500"，使用者完全不知道问题在哪。
+    真正的堆栈仍然写进后端日志，响应里只给一句能照着做的说明。
+    """
+    logger.exception("未处理的异常: %s %s", request.method, request.url.path)
+
+    if isinstance(exc, SQLAlchemyError):
+        message = (
+            "数据库操作失败。请确认 MySQL 已启动、campus_qa 库存在，"
+            "并且在 backend 目录执行过 alembic upgrade head（版本升级后表结构需要迁移）。"
+        )
+    else:
+        message = "服务端处理这个请求时出错，详细信息已记录到后端日志（backend 控制台）。"
+
+    return JSONResponse(
+        status_code=500,
+        content={
+            "code": 500,
+            "message": message,
+            "detail": message,
+            "timestamp": int(time.time()),
+        },
+    )
 
 app.include_router(ai_router)
 app.include_router(user_router)

@@ -37,11 +37,9 @@
 - Redis 不可用时自动降级到内存模式
 - 管理员可视化缓存面板
 
-### 📊 评测框架
+### 检索质量
 
-- 50 条评测数据集（单轮知识题 + 多轮对话 + 知识库外问题）
-- 多检索配置对比：dense-only / hybrid / hybrid+reranker
-- 指标：Hit@5、MRR@5、Precision、Recall、OOD 拒答率、P95 延迟
+稠密向量和 BM25 关键词两路召回，按倒数排名融合后取前 3 段送进模型。开发过程中用自建的一套评测脚本做过对照（检索配置对比、域外拒答阈值扫描、重排是否有收益），据此把重排默认关闭——脚本属于开发过程产物，不随仓库分发。
 
 ---
 
@@ -155,7 +153,7 @@ ai_service/data/bm25/           关键词索引
 │   │   ├── main.py           # FastAPI 入口
 │   │   ├── config.py         # 配置中心
 │   │   ├── database.py       # SQLAlchemy 引擎
-│   │   ├── redis_client.py   # Redis（降级 fakeredis）
+│   │   ├── redis_client.py   # Redis（不可用时降级到 SQLite 缓存）
 │   │   ├── models/           # ORM 模型
 │   │   ├── schemas/          # Pydantic 模型
 │   │   ├── services/         # 业务逻辑（入库 / 重建对齐）
@@ -163,13 +161,11 @@ ai_service/data/bm25/           关键词索引
 │   │   └── cache/            # Redis 缓存层
 │   ├── alembic/              # 数据库迁移
 │   ├── uploads/              # 上传暂存（转成文本后即清理，不进 git）
-│   ├── tests/                # pytest 测试
 │   └── init_db.sql           # 建库脚本
 │
 ├── frontend/                 # React 前端 (port 5173)
 │   └── src/pages/            # Chat, Documents, Profile, Login, Admin, UserManagement
 │
-├── evals/                    # 评测框架 + 数据集 + 报告
 ├── start.ps1                 # 一键启动脚本
 └── start.bat                 # Windows 快捷启动
 ```
@@ -232,20 +228,6 @@ npm run dev
 4. 进入「智能问答」→ 开始提问
 
 上传和放文件这两条路是等价的：上传的文件也会被写进 `knowledge_docs/`，所以下一次重建索引它们照样在。
-
----
-
-## 运行测试
-
-```bash
-# 后端测试（跳过需 GPU 的重排序测试）
-cd backend
-python -m pytest tests/ --ignore=tests/test_reranker.py
-
-# 前端测试
-cd frontend
-npx vitest run
-```
 
 ---
 

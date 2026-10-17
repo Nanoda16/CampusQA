@@ -1,11 +1,6 @@
 [build-system]
 requires = ["setuptools>=68.0"]
-build-backend = "setuptools.backends._legacy:_Backend"
-
-[tool.pytest.ini_options]
-testpaths = ["backend/tests"]
-python_files = ["test_*.py"]
-addopts = "-v --tb=short"
+build-backend = "setuptools.build_meta"
 
 [tool.ruff]
 line-length = 100
@@ -33,12 +28,4 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "redis>=5.2.0",
     "httpx>=0.28.0",
-]
-
-[project.optional-dependencies]
-dev = [
-    "pytest>=9.0.0",
-    "pytest-asyncio>=0.25.0",
-    "httpx>=0.28.0",
-    "fakeredis>=2.36.0",
 ]

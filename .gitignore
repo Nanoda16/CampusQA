@@ -73,7 +73,7 @@ Thumbs.db
 # Node (frontend)
 node_modules/
 front/node_modules/
-front/dist/
+frontend/dist/
 
 # Database
 *.db

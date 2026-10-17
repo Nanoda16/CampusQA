@@ -1,6 +1,0 @@
-{
-  "mode": "retrieval",
-  "top_k": 5,
-  "tag": "baseline-retrieval",
-  "ai_service_url": "http://localhost:8003"
-}
